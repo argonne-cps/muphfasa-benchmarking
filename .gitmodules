@@ -1,0 +1,3 @@
+[submodule "external/muphfasa"]
+	path = external/muphfasa
+	url = git@github.com:biboyd/muphfasa.git

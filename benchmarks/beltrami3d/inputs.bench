@@ -1,0 +1,34 @@
+# Benchmark: 3-D Beltrami flow (triply periodic, exact N-S).
+# One wavelength per box, k=2*pi/N, periodic in x,y,z. Tests isotropy
+# and 3-D streaming/collision without walls.
+
+# ── Grid ──────────────────────────────────────────────────────────────────
+# Default local: 64^3; Aurora weak: 128^3 per GPU (256^3 per node with 8 GPUs)
+grid.ncells      = 64 64 64
+grid.max_grid_size = 64
+grid.n_ghost     = 1
+
+# ── Simulation ───────────────────────────────────────────────────────────
+sim.max_step     = 110
+sim.stop_time    = -1.0
+
+# ── LBM ──────────────────────────────────────────────────────────────────
+lbm.lattice_type = D3Q19
+lbm.tau          = 0.8
+
+# ── Physical units ─────────────────────────────────────────────────────────
+units.ref_length    = 64.0
+units.ref_velocity  = 0.01
+units.Re            = 100.0
+
+# ── Boundary conditions ────────────────────────────────────────────────────
+bc.lo_type = Periodic  Periodic  Periodic
+bc.hi_type = Periodic  Periodic  Periodic
+
+# ── Geometry ───────────────────────────────────────────────────────────────
+geometry.prob_lo    = 0.0  0.0  0.0
+geometry.prob_hi    = 1.0  1.0  1.0
+
+# ── Output ─────────────────────────────────────────────────────────────────
+amr.plot_int        = -1
+amr.chk_int         = -1

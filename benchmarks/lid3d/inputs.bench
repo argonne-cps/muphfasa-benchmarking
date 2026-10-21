@@ -1,0 +1,39 @@
+# Benchmark: 3-D Lid-driven cavity (wall-normal z, like couette3d).
+# Lid at z=hi moves at U0 in x; periodic in x,y. Re=1000 for lid-driven
+# benchmark (Ghia et al. 3D extension).
+
+# ── Grid ──────────────────────────────────────────────────────────────────
+# Default for local: 64^3; for Aurora weak scaling use 256^3 per GPU (override via
+# grid.ncells=256 256 256). Keep max_grid_size = N to avoid tiling overhead for bench.
+grid.ncells      = 64 64 64
+grid.max_grid_size = 64
+grid.n_ghost     = 1
+
+# ── Simulation ───────────────────────────────────────────────────────────
+sim.max_step     = 110  # 10 warmup + 100 timed (bench.cpp)
+sim.stop_time    = -1.0
+
+# ── LBM ──────────────────────────────────────────────────────────────────
+lbm.lattice_type = D3Q19
+lbm.tau          = 0.692  # Re=100, U_lat=0.05, N=64 -> tau~0.692 (override for Re sweep)
+
+# ── Physical units ─────────────────────────────────────────────────────────
+units.ref_length    = 1.0
+units.ref_velocity  = 1.0
+units.ref_viscosity = 0.01
+units.Re            = 100.0
+units.Ma            = 0.05
+
+# ── Boundary conditions ────────────────────────────────────────────────────
+# x,y periodic; z walls NoSlip (lo) / MovingWall (hi, lid)
+bc.lo_type = Periodic  Periodic  NoSlip
+bc.hi_type = Periodic  Periodic  MovingWall
+bc.hiz_Uwall = 0.05  0.0  0.0
+
+# ── Geometry ───────────────────────────────────────────────────────────────
+geometry.prob_lo    = 0.0  0.0  0.0
+geometry.prob_hi    = 1.0  1.0  1.0
+
+# ── Output ─────────────────────────────────────────────────────────────────
+amr.plot_int        = -1
+amr.chk_int         = -1

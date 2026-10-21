@@ -1,0 +1,17 @@
+tmp_build_dir/
+*.ex
+*.o
+*.d
+__pycache__/
+*.pyc
+run_*/
+scaling_*/
+profile_*/
+convergence_runs*/
+*.png
+*.csv
+*.log
+*.slice
+plt*/
+analytic_plt*/
+chk*/
