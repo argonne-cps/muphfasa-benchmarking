@@ -38,11 +38,15 @@ CREATE TABLE IF NOT EXISTS runs(
   tau REAL, re REAL, u_lat REAL,
   steps INT, warmup INT, elapsed REAL,
   mlups REAL, ms_per_step REAL, mlups_per_rank REAL,
-  inputs_hash TEXT, bench_exe_mtime TEXT
+  inputs_hash TEXT, bench_exe_mtime TEXT,
+  ci INT
 );
 """
 
-DEDUP_COLS = ["git_sha","test_problem","lattice","ncells","nprocs","architecture","mpi","compiler"]
+# hostname is included so two different real machines both reporting
+# architecture="local" don't collide and silently drop a legitimate second
+# run (see /home/biboyd/.claude/plans/this-repository-has-been-precious-lamport.md).
+DEDUP_COLS = ["git_sha","test_problem","lattice","ncells","nprocs","architecture","hostname","mpi","compiler"]
 # Unique index on those + date(timestamp) created in init_db
 
 LATTICE_Q = {"D2Q9":9,"D3Q15":15,"D3Q19":19,"D3Q27":27}
@@ -74,6 +78,15 @@ def get_architecture():
         arch = "polaris"
     return arch, hostname
 
+def is_ci():
+    """True when running under a recognized CI system (currently only GitHub
+    Actions, since that's what benchmark-perf-db.md's v1 targets). There is
+    no CI workflow wired up yet (see plan doc "Future Work"), so today this
+    is always False in practice and every write to results/history.jsonl on
+    `main` comes from a local run -- the `ci` column on each row makes that
+    provenance explicit/queryable instead of silently assumed."""
+    return os.getenv("GITHUB_ACTIONS") == "true"
+
 def is_main_branch():
     if os.getenv("MUPHFASA_BENCH_TRACK_MAIN") == "1":
         return True
@@ -102,7 +115,7 @@ def init_db(db_path: Path):
     conn = sqlite3.connect(db_path)
     conn.executescript(SCHEMA)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_query ON runs(test_problem, architecture, mpi, nprocs, lattice);")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_dedup ON runs(git_sha, test_problem, lattice, ncells, nprocs, architecture, mpi, compiler, date(timestamp));")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dedup ON runs(git_sha, test_problem, lattice, ncells, nprocs, architecture, hostname, mpi, compiler, date(timestamp));")
     conn.commit()
     return conn
 
@@ -140,8 +153,10 @@ def parse_inputs_meta(inputs_path: Path, overrides=None):
 
 def dedup_exists(conn, rec):
     cur = conn.execute(
-        "SELECT id FROM runs WHERE git_sha=? AND test_problem=? AND lattice=? AND ncells=? AND nprocs=? AND architecture=? AND mpi=? AND compiler=? AND date(timestamp)=date('now')",
-        (rec["git_sha"], rec["test_problem"], rec["lattice"], rec["ncells"], rec["nprocs"], rec["architecture"], rec["mpi"], rec["compiler"])
+        "SELECT id FROM runs WHERE git_sha=? AND test_problem=? AND lattice=? AND ncells=? AND nprocs=? "
+        "AND architecture=? AND hostname=? AND mpi=? AND compiler=? AND date(timestamp)=date('now')",
+        (rec["git_sha"], rec["test_problem"], rec["lattice"], rec["ncells"], rec["nprocs"],
+         rec["architecture"], rec["hostname"], rec["mpi"], rec["compiler"])
     )
     return cur.fetchone() is not None
 
@@ -203,7 +218,8 @@ def log_run(args):
         "tau": meta["tau"], "re": meta["re"], "u_lat": None,
         "steps": args.steps or 0, "warmup": args.warmup or 0, "elapsed": elapsed,
         "mlups": mlups, "ms_per_step": ms, "mlups_per_rank": mlups/max(1,nprocs),
-        "inputs_hash": meta["inputs_hash"], "bench_exe_mtime": ""
+        "inputs_hash": meta["inputs_hash"], "bench_exe_mtime": "",
+        "ci": 1 if is_ci() else 0,
     }
     # DB handling
     cache_db = Path(args.db) if args.db else DEFAULT_CACHE_DB
@@ -222,7 +238,8 @@ def log_run(args):
         jsonl.parent.mkdir(parents=True, exist_ok=True)
         with open(jsonl,"a") as f:
             f.write(json.dumps(rec, sort_keys=True)+"\n")
-        print(f"Appended to {jsonl} (main branch)")
+        origin = "CI" if rec["ci"] else "local run on main -- NOT a vetted/curated measurement"
+        print(f"Appended to {jsonl} ({origin})")
         # also ensure results/perf.db is synced
         sync_db(jsonl, DEFAULT_RESULTS_DB)
     else:

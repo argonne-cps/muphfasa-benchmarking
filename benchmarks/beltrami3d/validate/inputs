@@ -1,0 +1,48 @@
+# Correctness test: 3-D Beltrami flow decay.
+# Triply-periodic NxN^3 domain, one wavelength per side (see ../BeltramiAnalytic.H).
+# ../InitData.cpp (one directory up, shared with the bench.cpp perf driver)
+# sets the initial condition to the exact solution at t=0; test_beltrami3d.cpp
+# compares the solver's evolution against the exact solution at later times.
+
+# ── Grid ──────────────────────────────────────────────────────────────────
+grid.ncells      = 32 32 32   # cubic: one wavelength per side
+grid.max_grid_size = 32
+grid.n_ghost     = 1
+
+# ── Simulation ───────────────────────────────────────────────────────────
+# At N=32, tau=0.8 (nu_lat=0.1 below) and k=2*pi/32, the velocity field
+# decays as exp(-3*nu*k^2*t) (|k|^2=3 for the (1,1,1) Beltrami mode);
+# max_step=200 reaches ~90% decay, giving a clear amr.plot_int=50 sequence.
+sim.max_step     = 200
+sim.stop_time    = -1.0     # run to max_step
+
+# ── LBM ──────────────────────────────────────────────────────────────────
+lbm.lattice_type = D3Q19
+lbm.tau          = 0.8      # pinned directly: nu_lat = (tau-0.5)*cs2 = 0.1
+
+# ── Physical units ─────────────────────────────────────────────────────────
+# units.Re must be nonzero (UnitConverter divides by it internally) but its
+# exact value has no effect here, since lbm.tau is pinned directly above.
+# units.ref_velocity doubles as the Beltrami amplitude u0 (read via
+# InputParser::refVelocity() by both InitData.cpp and test_beltrami3d.cpp);
+# it's a *physical* velocity, converted to lattice units via
+# UnitConverter::toLatticeVelocity() before use. Kept small to stay in the
+# low-Mach regime.
+units.ref_length    = 32.0
+units.ref_velocity  = 0.01
+units.Re            = 1.0
+
+# ── Boundary conditions ────────────────────────────────────────────────────
+# Fully periodic; GeometryHandler derives is_periodic from these names.
+bc.lo_type = Periodic  Periodic  Periodic
+bc.hi_type = Periodic  Periodic  Periodic
+
+# ── Geometry ───────────────────────────────────────────────────────────────
+geometry.prob_lo    = 0.0  0.0  0.0
+geometry.prob_hi    = 1.0  1.0  1.0
+
+# ── Output ─────────────────────────────────────────────────────────────────
+amr.plot_int        = 50
+amr.chk_int         = 201
+amr.plot_file       = plt
+amr.check_file      = chk

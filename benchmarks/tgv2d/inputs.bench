@@ -24,7 +24,9 @@ lbm.tau          = 0.8      # pinned directly: nu_lat = (tau-0.5)*cs2 = 0.1
 # exact value has no effect here, since lbm.tau is pinned directly above --
 # see src/LBM/Units.cpp. units.ref_velocity doubles as the TGV vortex
 # amplitude u0 (read via InputParser::refVelocity() by both InitData.cpp and
-# test_tgv2d.cpp), in lattice units.
+# test_tgv2d.cpp); it's a *physical* velocity, converted to lattice units via
+# UnitConverter::toLatticeVelocity() before use (muphfasa plotfiles/IC
+# handling moved to physical units as of upstream commit c736661).
 units.ref_length    = 64.0
 units.ref_velocity  = 0.002
 units.Re            = 1.0

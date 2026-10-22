@@ -1,6 +1,6 @@
 # Benchmark: 3-D Lid-driven cavity (wall-normal z, like couette3d).
-# Lid at z=hi moves at U0 in x; periodic in x,y. Re=1000 for lid-driven
-# benchmark (Ghia et al. 3D extension).
+# Lid at z=hi moves at U0 in x; periodic in x,y. Re=100 (see units.Re / tau
+# below) for this benchmark config; override units.Re + lbm.tau for other Re.
 
 # ── Grid ──────────────────────────────────────────────────────────────────
 # Default for local: 64^3; for Aurora weak scaling use 256^3 per GPU (override via

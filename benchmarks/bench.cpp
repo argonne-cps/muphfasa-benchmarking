@@ -71,21 +71,32 @@ int main(int argc, char* argv[])
         // Reduce across ranks (max, since all ranks should be similar)
         amrex::ParallelDescriptor::ReduceRealMax(elapsed);
 
-        double mlups = (double)total_cells * Q * bench_steps / (elapsed * 1e6);
+        // MLUPS = Million Lattice (cell) Updates Per Second, the standard LBM
+        // community definition (Palabos/waLBerla/HemeLB/OpenLB): cells*steps
+        // over wall time, WITHOUT multiplying by the number of discrete
+        // velocities Q. Earlier versions of this driver multiplied by Q,
+        // which inflated the number by 9x/19x/27x and made it incomparable
+        // to MLUPS figures reported elsewhere. MLUDPS (lattice-Direction
+        // updates/s) is kept alongside for anyone who wants the Q-scaled
+        // (roughly memory-bandwidth-proportional) figure.
+        double mlups = (double)total_cells * bench_steps / (elapsed * 1e6);
+        double mludps = (double)total_cells * Q * bench_steps / (elapsed * 1e6);
         double ms_per_step = (elapsed / bench_steps) * 1e3;
 
         amrex::Print() << "Benchmark result: elapsed=" << elapsed << " s for "
                        << bench_steps << " steps\n";
-        amrex::Print() << "  MLUPS=" << mlups << "  ms/step=" << ms_per_step << "\n";
+        amrex::Print() << "  MLUPS=" << mlups << "  MLUDPS=" << mludps
+                       << "  ms/step=" << ms_per_step << "\n";
         amrex::Print() << "  Config: lattice=" << lattice
                        << " ncells=";
         for (size_t i=0;i<ncells.size();++i) amrex::Print() << ncells[i] << (i+1<ncells.size()?"x":"");
         amrex::Print() << " MPI ranks=" << amrex::ParallelDescriptor::NProcs() << "\n";
 
-        // Also print in parseable form for run_scaling.py
+        // Also print in parseable form for run_scaling.py / perf.py
         amrex::Print() << "BENCH_RESULT mlups=" << mlups
                        << " ms_per_step=" << ms_per_step
-                       << " elapsed=" << elapsed << "\n";
+                       << " elapsed=" << elapsed
+                       << " mludps=" << mludps << "\n";
     }
     amrex::Finalize();
     return 0;

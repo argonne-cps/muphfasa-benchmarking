@@ -4,14 +4,15 @@
 #include "InitData.H"
 #include "BeltramiAnalytic.H"
 #include "IO/InputParser.H"
+#include "LBM/Units.H"
 
 #include <AMReX_MultiFab.H>
 
 namespace muphfasa {
 
-void initData(amrex::MultiFab& rho, amrex::MultiFab& vel) {
+void initData(amrex::MultiFab& rho, amrex::MultiFab& vel, const UnitConverter& units) {
     InputParser params;
-    amrex::Real u0 = params.refVelocity();
+    amrex::Real u0 = units.toLatticeVelocity(params.refVelocity());
     const amrex::Box domain = rho.boxArray().minimalBox();
     const int N = domain.length(0); // assume cubic
     const amrex::Real k = beltrami::waveNumber(N);
