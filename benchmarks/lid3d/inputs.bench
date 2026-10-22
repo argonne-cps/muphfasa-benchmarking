@@ -19,10 +19,9 @@ lbm.tau          = 0.692  # Re=100, U_lat=0.05, N=64 -> tau~0.692 (override for 
 
 # ── Physical units ─────────────────────────────────────────────────────────
 units.ref_length    = 1.0
-units.ref_velocity  = 1.0
-units.ref_viscosity = 0.01
+units.ref_velocity  = 0.05
+units.ref_density   = 1.0
 units.Re            = 100.0
-units.Ma            = 0.05
 
 # ── Boundary conditions ────────────────────────────────────────────────────
 # x,y periodic; z walls NoSlip (lo) / MovingWall (hi, lid)

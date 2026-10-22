@@ -37,9 +37,11 @@ python3 run_scaling.py --case tgv2d --sizes 1024 2048 4096 --nodes 1 2 4
 make -C benchmarks/tgv2d DIM=2 USE_MPI=TRUE USE_SYCL=TRUE COMP=intel
 make -C benchmarks/lid3d DIM=3 USE_MPI=TRUE USE_SYCL=TRUE COMP=intel
 
-# Batch (PBS, 12 ranks/node, 6 GPUs/node)
-qsub -l select=4:system=aurora -l walltime=00:30:00 batch/aurora_bench.sh
+# Batch (PBS, 12 ranks/node, 6 GPUs/node) — requires -l filesystems=flare, see skills/aurora-overview.md
+qsub -A <ALCF_PROJECT> -q debug -l select=2:system=aurora -l walltime=00:30:00 -l filesystems=flare batch/aurora_bench.sh
+# Check queue first: qstat -u $USER; debug max 1 job/user, prod routes small/medium/large
 # aurora_bench.sh: mpiexec -n $NNODES --ppn 12 --gpus-per-node 6 ./bench*.ex inputs.bench
+# Do not submit from /soft/modulefiles; prefer /opt/aurora APE; proxy http://proxy.alcf.anl.gov:3128 set in job
 ```
 
 `run_scaling.py` parses `run.log` for `MLUPS` and `ms/step` and plots weak/strong efficiency vs. 1-node baseline (see `benchmarks/README.md`).
@@ -60,7 +62,15 @@ muphfasa-benchmarking/
   run_scaling.py
 ```
 
-`Make.muphfasa` (`external/muphfasa/Make.muphfasa`) holds all solver sources and AMReX modules; each benchmark's `GNUmakefile` only sets `TOP`, `DIM`, `EBASE`, `CEXE_sources` and `include $(TOP)/Make.muphfasa`. Local `InitData.cpp` wins via `VPATH` precedence.
+`Make.muphfasa` (`external/muphfasa/Make.muphfasa`) holds all solver sources and AMReX modules; each benchmark's `GNUmakefile` only sets `TOP`, `DIM`, `EBASE`, `CEXE_sources` and `include $(TOP)/Make.muphfasa`. Local `InitData.cpp` wins via `VPATH` precedence (`VPATH_LOCATIONS+=..` before include).
+
+## Aurora skills
+
+This repo vendors the relevant `alcf-agent-skillset` docs in `skills/`:
+- `aurora-overview.md` — 10,624 nodes, 104 cores + 6 PVC (12 tiles)/node, flare/DAOS mounts, queues (`debug` 1-2 nodes, `debug-scaling` 2-256, `prod`/`capacity`), `-l filesystems=flare`, proxy `proxy.alcf.anl.gov:3128`, cores 0/52 reserved.
+- `etiquette.md` / `safety.md` — do not build/run heavy work on login nodes, `qstat -u $USER` before submit, `BENCH_J=4` for local makes, no credentials in job scripts, never `rm -rf` shared dirs.
+
+`batch/aurora_bench.sh` follows these: `#PBS -l filesystems=flare`, `module use /soft/modulefiles` with note to prefer `/opt/aurora`, `MPICH_GPU_SUPPORT_ENABLED=1`, `FI_CXI_ATS=0`, lazy build on compute, and checkpoint note for node failures.
 
 ## Validate vs Perf
 

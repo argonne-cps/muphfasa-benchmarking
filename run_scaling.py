@@ -36,7 +36,8 @@ def main():
     cfg = CASES[args.case]
     dim = cfg["dim"]
     lattice = args.lattice or cfg["default_lattice"]
-    bench_dir = Path(cfg["bench_dir"])
+    from helper import BENCH_DIR
+    bench_dir = BENCH_DIR / cfg["bench_dir"]
     inputs = bench_dir / "inputs.bench"
 
     if not args.no_build:
@@ -45,7 +46,9 @@ def main():
     # For now, just run locally with 1 rank per size (Aurora batch handles MPI)
     # Weak: size scales with nodes, Strong: fixed size, vary nodes
     results = []
-    for size, nodes in zip(args.sizes, args.nodes * len(args.sizes)):
+    import itertools
+    nodes_cycle = itertools.islice(itertools.cycle(args.nodes), len(args.sizes))
+    for size, nodes in zip(args.sizes, nodes_cycle):
         # Build overrides: grid.ncells and lattice
         if dim == 2:
             overrides = [f"grid.ncells={size} {size}", f"grid.max_grid_size={size}", f"lbm.lattice_type={lattice}"]

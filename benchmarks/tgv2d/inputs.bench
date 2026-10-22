@@ -11,9 +11,8 @@ grid.n_ghost     = 1
 
 # ── Simulation ───────────────────────────────────────────────────────────
 # At N=64, tau=0.8 (nu_lat=0.1 below) and k=2*pi/64, the velocity field
-# decays by exp(-2*nu*k^2*t); max_step=2000 reaches exp(...) ~ 0.02 (~98%
-# decayed), giving a clear visual decay over the amr.plot_int=200 snapshots.
-sim.max_step     = 2000
+# decays by exp(-2*nu*k^2*t). For bench we run short: warmup handled by bench.cpp.
+sim.max_step     = 110
 sim.stop_time    = -1.0     # run to max_step
 
 # ── LBM ──────────────────────────────────────────────────────────────────
@@ -41,7 +40,6 @@ geometry.prob_hi    = 1.0  1.0
 
 # ── Output ─────────────────────────────────────────────────────────────────
 # Benchmark: no I/O, 100 timed steps after 10 warmup (see bench.cpp)
-sim.max_step     = 110
 amr.plot_int        = -1
 amr.chk_int         = -1
 amr.plot_file       = plt

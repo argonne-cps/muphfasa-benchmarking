@@ -1,4 +1,6 @@
 tmp_build_dir/
+.cache/
+tools/
 *.ex
 *.o
 *.d
