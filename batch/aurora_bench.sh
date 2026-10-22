@@ -61,3 +61,6 @@ mpiexec -n $((NNODES * PPN)) --ppn $PPN --gpus-per-node 6 --gpu-bind closest \
 
 # Parse MLUPS
 grep BENCH_RESULT $RUN_DIR.log || echo "No BENCH_RESULT found"
+
+# Log to perf DB (only appends to results/history.jsonl on main branch; use --force to override dedup)
+python3 "$(dirname "$0")/../perf.py" log --test "$CASE" --lattice "$LATTICE" --ncells "$SIZE $SIZE $([ "$CASE" = "tgv2d" ] && echo "" || echo $SIZE)" --nprocs $((NNODES * PPN)) --inputs "$INPUTS" --log "$RUN_DIR.log" || echo "perf log failed (non-main branch skips history.jsonl by design)"

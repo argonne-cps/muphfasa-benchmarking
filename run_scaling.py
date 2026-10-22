@@ -14,7 +14,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from helper import build_bench, parse_bench_result, run_bench
+from helper import BENCH_DIR, build_bench, parse_bench_result, run_bench
 
 CASES = {
     "tgv2d": {"dim": 2, "default_lattice": "D2Q9", "bench_dir": "benchmarks/tgv2d"},
@@ -31,12 +31,13 @@ def main():
     parser.add_argument("--lattice", type=str, default=None)
     parser.add_argument("--plot", type=Path, default=None)
     parser.add_argument("--no-build", action="store_true")
+    parser.add_argument("--no-log", action="store_true", help="skip perf DB logging")
+    parser.add_argument("--force-log", action="store_true", help="bypass dedup for perf log")
     args = parser.parse_args()
 
     cfg = CASES[args.case]
     dim = cfg["dim"]
     lattice = args.lattice or cfg["default_lattice"]
-    from helper import BENCH_DIR
     bench_dir = BENCH_DIR / cfg["bench_dir"]
     inputs = bench_dir / "inputs.bench"
 
@@ -63,6 +64,19 @@ def main():
         res["nodes"] = nodes
         results.append(res)
         print(f"size={size} nodes={nodes} MLUPS={res['mlups']:.1f} ms/step={res['ms_per_step']:.2f}")
+        if not args.no_log:
+            # Log to perf DB: test_problem, lattice, ncells from overrides, nprocs=1 locally
+            ncells_override = next((o.split("=",1)[1] for o in overrides if o.startswith("grid.ncells=")), "")
+            log_path = run_dir / "run.log"
+            try:
+                cmd = [sys.executable, str(BENCH_DIR / "perf.py"), "log", "--test", args.case,
+                       "--lattice", lattice, "--ncells", ncells_override, "--nprocs", "1",
+                       "--inputs", str(inputs), "--log", str(log_path)]
+                if args.force_log:
+                    cmd.append("--force")
+                subprocess.run(cmd, check=False)
+            except Exception as e:
+                print(f"perf log failed: {e}", file=sys.stderr)
 
     if args.plot and results:
         import matplotlib
