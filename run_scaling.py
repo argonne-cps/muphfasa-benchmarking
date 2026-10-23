@@ -22,6 +22,7 @@ from helper import BENCH_DIR, build_bench, find_bench_exe, parse_bench_result, r
 
 CASES = {
     "tgv2d": {"dim": 2, "default_lattice": "D2Q9", "bench_dir": "benchmarks/tgv2d"},
+    "tgv3d": {"dim": 3, "default_lattice": "D3Q19", "bench_dir": "benchmarks/tgv3d"},
     "lid3d": {"dim": 3, "default_lattice": "D3Q19", "bench_dir": "benchmarks/lid3d"},
     "beltrami3d": {"dim": 3, "default_lattice": "D3Q19", "bench_dir": "benchmarks/beltrami3d"},
 }

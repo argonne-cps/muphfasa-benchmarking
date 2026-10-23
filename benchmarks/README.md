@@ -7,17 +7,19 @@ All benchmarks use `bench.cpp` (no I/O) and report `MLUPS`.
 | Case | Grid (bench default) | Aurora weak (per GPU) | Lattice | BC |
 |------|---------------------|----------------------|---------|----|
 | `tgv2d` | 64² (local) → 1024² | 1024²/GPU → 8192² | D2Q9 | Periodic |
+| `tgv3d` | 64³ → 128³ | 128³/GPU → 512³ | D3Q19/27 | Periodic xyz (TGV) |
 | `lid3d` | 64³ → 256³ | 256³/GPU → 1024³ | D3Q19/27 | Periodic x,y, z walls (NoSlip/MovingWall) |
-| `beltrami3d` | 64³ → 128³ | 128³/GPU → 512³ | D3Q19/27 | Periodic xyz |
+| `beltrami3d` | 64³ → 128³ | 128³/GPU → 512³ | D3Q19/27 | Periodic xyz (Beltrami) |
 
 ## Build (uses `external/muphfasa/Make.muphfasa`)
 
 ```sh
 make -C benchmarks/tgv2d -j6 DIM=2
+make -C benchmarks/tgv3d -j6 DIM=3
 make -C benchmarks/lid3d -j6 DIM=3
 make -C benchmarks/beltrami3d -j6 DIM=3
 # Aurora SYCL
-make -C benchmarks/lid3d DIM=3 USE_MPI=TRUE USE_SYCL=TRUE COMP=intel -j6
+make -C benchmarks/tgv3d DIM=3 USE_MPI=TRUE USE_SYCL=TRUE COMP=intel -j6
 ```
 
 `VPATH` ensures `benchmarks/tgv2d/InitData.cpp` (TGV) and `benchmarks/beltrami3d/InitData.cpp` override `external/muphfasa/src/Simulation/InitData.cpp`.

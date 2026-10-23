@@ -7,6 +7,7 @@ Scale benchmarks for [muphfasa](https://github.com/biboyd/muphfasa) on Aurora (I
 | Case | Dim | Lattice | Sizes (weak) | Physics |
 |------|-----|---------|--------------|---------|
 | `tgv2d` | 2D | D2Q9 | 1024² → 8192² (1024²/GPU) | Taylor-Green vortex, periodic, analytical decay `exp(-2νk²t)` |
+| `tgv3d` | 3D | D3Q19/27 | 128³ → 512³ (128³/GPU) | Taylor-Green vortex 3-D, periodic, `w=0` initial, `exp(-2νk²t)` |
 | `lid3d` | 3D | D3Q19/27 | 256³ → 1024³ (256³/GPU) | Lid-driven cavity, Re=100 (`inputs.bench`; override `units.Re`/`lbm.tau` for other Re), `MovingWall` |
 | `beltrami3d` | 3D | D3Q19/27 | 128³ → 512³ (128³/GPU) | 3D Beltrami flow, fully periodic, exact N-S |
 
@@ -58,6 +59,7 @@ muphfasa-benchmarking/
   benchmarks/
     bench.cpp                 # generic timed driver (no analytic plotfiles)
     tgv2d/   GNUmakefile, inputs.bench, InitData.cpp (TGV, overrides src/Simulation/InitData.cpp)
+    tgv3d/   GNUmakefile, inputs.bench, InitData.cpp, Tgv3dAnalytic.H (3-D TGV, borrows tgv2d+beltrami3d)
     lid3d/   GNUmakefile, inputs.bench (lid-driven, z-wall like couette)
     beltrami3d/ GNUmakefile, inputs.bench, InitData.cpp, BeltramiAnalytic.H
   batch/
