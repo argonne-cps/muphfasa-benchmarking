@@ -14,12 +14,20 @@ sim.stop_time    = -1.0
 
 # ── LBM ──────────────────────────────────────────────────────────────────
 lbm.lattice_type = D3Q19
-lbm.tau          = 0.8
+lbm.tau          = 0.8      # pinned directly: nu_lat = (tau-0.5)*cs2 = 0.1
 
 # ── Physical units ─────────────────────────────────────────────────────────
+# units.Re must be nonzero (UnitConverter divides by it internally), but with
+# lbm.tau pinned above it also directly scales u_lat (UnitConverter::Units.cpp
+# derives u_lat_from_tau = nu_lat_from_tau * Re / N when tau is pinned -- Re
+# is NOT inert here). Keep it at 1.0, matching tgv2d's/tgv3d's bench files,
+# so u_lat only depends on tau/N and stays safely under the lbm.u_lat<0.3
+# low-Mach assert across grid-size overrides (e.g. run_scaling.py sweeps
+# below the N=64 this file was tuned at -- Re=100.0 here previously pushed
+# u_lat to 0.3125 at N=32 and aborted).
 units.ref_length    = 64.0
 units.ref_velocity  = 0.01
-units.Re            = 100.0
+units.Re            = 1.0
 
 # ── Boundary conditions ────────────────────────────────────────────────────
 bc.lo_type = Periodic  Periodic  Periodic
