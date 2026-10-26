@@ -1,7 +1,7 @@
-# Correctness test: 3-D Taylor-Green vortex decay.
+# Correctness test: 3-D Taylor-Green vortex, global kinetic-energy balance.
 # Triply-periodic NxN^3 domain, one wavelength per side (see ../Tgv3dAnalytic.H).
 # ../InitData.cpp (one directory up, shared with bench) sets t=0 IC; test_tgv3d.cpp
-# compares evolution against same analytic at later times.
+# checks KE(0)-KE(T) against nu*integral(|curl(u)|^2)dt over the run (see README.md).
 
 # ── Grid ──────────────────────────────────────────────────────────────────
 grid.ncells      = 32 32 32   # cubic: one wavelength per side
@@ -9,8 +9,11 @@ grid.max_grid_size = 32
 grid.n_ghost     = 1
 
 # ── Simulation ───────────────────────────────────────────────────────────
-# At N=32, tau=0.8 (nu_lat=0.1) and k=2*pi/32, velocity decays as exp(-2*nu*k^2*t);
-# max_step=200 reaches ~90% decay, giving amr.plot_int=50 sequence.
+# The energy-balance check holds regardless of amplitude/duration, but the
+# trapezoidal time integration needs enough plot-step samples to be accurate
+# (KE decays fast here, so a coarse amr.plot_int under-samples it): plot_int=10
+# over 200 steps (~1% relative error) vs. plot_int=50 (~9%, still correct, just
+# a looser integration) -- see validate/README.md.
 sim.max_step     = 200
 sim.stop_time    = -1.0
 
@@ -34,7 +37,7 @@ geometry.prob_lo    = 0.0  0.0  0.0
 geometry.prob_hi    = 1.0  1.0  1.0
 
 # ── Output ─────────────────────────────────────────────────────────────────
-amr.plot_int        = 50
+amr.plot_int        = 10
 amr.chk_int         = 201
 amr.plot_file       = plt
 amr.check_file      = chk

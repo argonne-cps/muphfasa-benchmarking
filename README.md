@@ -7,7 +7,7 @@ Scale benchmarks for [muphfasa](https://github.com/biboyd/muphfasa) on Aurora (I
 | Case | Dim | Lattice | Sizes (weak) | Physics |
 |------|-----|---------|--------------|---------|
 | `tgv2d` | 2D | D2Q9 | 1024² → 8192² (1024²/GPU) | Taylor-Green vortex, periodic, analytical decay `exp(-2νk²t)` |
-| `tgv3d` | 3D | D3Q19/27 | 128³ → 512³ (128³/GPU) | Taylor-Green vortex 3-D, periodic, `w=0` initial, `exp(-2νk²t)` |
+| `tgv3d` | 3D | D3Q19/27 | 128³ → 512³ (128³/GPU) | Taylor-Green vortex 3-D, periodic, `w=0` initial; NOT an exact N-S solution for t>0 (see `Tgv3dAnalytic.H`) |
 | `lid3d` | 3D | D3Q19/27 | 256³ → 1024³ (256³/GPU) | Lid-driven cavity, Re=100 (`inputs.bench`; override `units.Re`/`lbm.tau` for other Re), `MovingWall` |
 | `beltrami3d` | 3D | D3Q19/27 | 128³ → 512³ (128³/GPU) | 3D Beltrami flow, fully periodic, exact N-S |
 
@@ -96,6 +96,13 @@ errors.
   - `tgv2d`: validated upstream, `external/muphfasa/tests/regression/tgv2d` (exact 2D TGV decay).
   - `beltrami3d`: validated in this repo, `benchmarks/beltrami3d/validate/` (exact 3D Beltrami decay,
     mirrors the tgv2d test — see its README for build/run/fcompare steps).
+  - `tgv3d`: `benchmarks/tgv3d/validate/` is not an `fcompare`-vs-analytic test like the other
+    two — the classic 3-D TGV IC has no closed-form solution for t>0 (vortex stretching moves
+    energy into other modes, unlike the 2-D TGV or the Beltrami flow, see `Tgv3dAnalytic.H`), so
+    there's no analytic field to diff against. Instead `test_tgv3d.cpp` checks the **global
+    kinetic-energy balance** `KE(0)-KE(T) = nu*integral(|curl(u)|^2)dt`, which is exact for
+    incompressible Navier-Stokes at any Re/amplitude/duration regardless of vortex stretching —
+    a genuine correctness check on the solver, not just a sanity check on the IC wiring.
   - `lid3d`: no closed-form solution exists for lid-driven cavity (Ghia et al. is a numerical
     reference, not analytic), so there's no `fcompare`-vs-analytic path here; at minimum, compare
     against the upstream 2D `tests/regression/lid_driven_cavity` steady-state profile or a

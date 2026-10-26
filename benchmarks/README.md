@@ -19,6 +19,7 @@ make -C benchmarks/tgv3d -j6 DIM=3
 make -C benchmarks/lid3d -j6 DIM=3
 make -C benchmarks/beltrami3d -j6 DIM=3
 # Aurora SYCL
+make -C benchmarks/lid3d DIM=3 USE_MPI=TRUE USE_SYCL=TRUE COMP=intel -j6
 make -C benchmarks/tgv3d DIM=3 USE_MPI=TRUE USE_SYCL=TRUE COMP=intel -j6
 ```
 

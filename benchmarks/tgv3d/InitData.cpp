@@ -25,8 +25,8 @@ void initData(amrex::MultiFab& rho, amrex::MultiFab& vel, const UnitConverter& u
             amrex::Real y = amrex::Real(j) + 0.5;
             amrex::Real z = amrex::Real(k_) + 0.5;
             amrex::Real ux, uy, uz;
-            tgv3d::exactUVW(x,y,z,k,u0,amrex::Real(0),amrex::Real(0),ux,uy,uz);
-            r(i,j,k_,0) = tgv3d::exactRho(x,y,z,k,u0,amrex::Real(0),amrex::Real(0));
+            tgv3d::initUVW(x,y,z,k,u0,amrex::Real(0),amrex::Real(0),ux,uy,uz);
+            r(i,j,k_,0) = tgv3d::initRho(x,y,z,k,u0,amrex::Real(0),amrex::Real(0));
             u(i,j,k_,0) = ux;
             u(i,j,k_,1) = uy;
             u(i,j,k_,2) = uz;
