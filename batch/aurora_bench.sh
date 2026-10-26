@@ -8,25 +8,54 @@
 # do not submit from /soft/modulefiles, queue limits: prod routes small/medium/large,
 # debug=1-2 nodes max 1 job/user, capacity=1-16 nodes. Check qstat before submit.
 
-# Aurora benchmark batch: runs bench.cpp for tgv2d/lid3d/beltrami3d with MPI+SYCL
-# Usage: qsub -l select=4:system=aurora batch/aurora_bench.sh
-# Override: NNODES=8 CASE=lid3d SIZE=256 LATTICE=D3Q19 qsub ...
+# Aurora benchmark batch: runs bench.cpp for tgv2d/tgv3d/lid3d/beltrami3d with MPI+SYCL
+# Usage:
+#   qsub -l select=4:system=aurora -l filesystems=flare -A <proj> -q prod \
+#        batch/aurora_bench.sh -- --nodes=4 --case=lid3d --size=256 --lattice=D3Q19
+#   (args after `--` are forwarded to the script; `NNODES=4 CASE=lid3d qsub ...`
+#    env-var form still works, CLI args take precedence)
 
 set -e
 cd ${PBS_O_WORKDIR:-$(dirname $0)/..}
 
+# Defaults (env-vars kept for backwards compat with `NNODES=4 qsub ...`)
 NNODES=${NNODES:-4}
 CASE=${CASE:-lid3d}
 SIZE=${SIZE:-256}
 LATTICE=${LATTICE:-D3Q19}
 PPN=${PPN:-12}  # ranks per node (12 on Aurora, 6 GPUs x 2 tiles)
 
+# CLI args: --nodes=, --nnodes=, --case=, --size=, --lattice=, --ppn=
+# Also accepts --nodes 4 / -n 4 style for convenience. Unknown args warn.
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --nodes=*|--nnodes=*) NNODES="${1#*=}"; shift ;;
+    --nodes|--nnodes|-n)   NNODES="$2"; shift 2 ;;
+    --case=*)             CASE="${1#*=}"; shift ;;
+    --case|-c)            CASE="$2"; shift 2 ;;
+    --size=*)             SIZE="${1#*=}"; shift ;;
+    --size|-s)            SIZE="$2"; shift 2 ;;
+    --lattice=*)          LATTICE="${1#*=}"; shift ;;
+    --lattice)            LATTICE="$2"; shift 2 ;;
+    --ppn=*)              PPN="${1#*=}"; shift ;;
+    --ppn)                PPN="$2"; shift 2 ;;
+    --help|-h)
+      echo "Usage: qsub {qsub args} batch/aurora_bench.sh -- --nodes=N --case={tgv2d|tgv3d|lid3d|beltrami3d} --size=N [--lattice=D3Q19] [--ppn=12]"
+      echo "  Env-var form still works: NNODES=4 CASE=lid3d SIZE=256 LATTICE=D3Q19 PPN=12 qsub ..."
+      exit 0 ;;
+    --) shift; ;;  # qsub delimiter: `qsub ... script.sh -- --nodes=4`
+    *) echo "WARNING: unknown arg $1" >&2; shift ;;
+  esac
+done
+
 # Aurora modules: prefer /opt/aurora APE, avoid NFS /soft at scale (>1000 nodes)
 # per skills/aurora-overview.md: /soft causes scaling issues, do not submit from /soft/modulefiles
-module use /soft/modulefiles
-module load cmake
-# Intel oneAPI DPC++ for SYCL on PVC (e.g. oneapi/eng-compiler/2024.2.1 or aurora-PE)
-# module load oneapi
+if command -v module &>/dev/null; then
+  module use /soft/modulefiles || true
+  module load cmake || true
+  # Intel oneAPI DPC++ for SYCL on PVC (e.g. oneapi/eng-compiler/2024.2.1 or aurora-PE)
+  # module load oneapi
+fi
 
 export MPICH_GPU_SUPPORT_ENABLED=1
 export FI_CXI_ATS=0
