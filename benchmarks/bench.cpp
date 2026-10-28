@@ -1,7 +1,7 @@
 // bench.cpp — Generic LBM benchmark driver (no I/O, timed).
 //
 // Thin clone of external/muphfasa/tests/regression/couette/test_couette.cpp
-// and tgv2d/test_tgv2d.cpp: uses InputParser/ISimulation/advance() with the
+// and tgv2d/test_tgv2d.cpp: uses InputParser/ISimulation/advanceFused() with the
 // benchmark's own InitData.cpp (if any) overriding the default quiescent
 // start via VPATH precedence. Measures MLUPS without plotfile overhead.
 
@@ -46,13 +46,13 @@ int main(int argc, char* argv[])
 
         // Warmup (not timed, also fills caches)
         for (int step = 0; step < warmup; ++step) {
-            sim->advance(step);
+            sim->advanceFused(step);
         }
         amrex::ParallelDescriptor::Barrier();
         double t0 = amrex::second();
 
         for (int step = warmup; step < max_step; ++step) {
-            sim->advance(step);
+            sim->advanceFused(step);
             // No I/O in bench mode: inputs.bench should have amr.plot_int=-1
         }
         amrex::ParallelDescriptor::Barrier();

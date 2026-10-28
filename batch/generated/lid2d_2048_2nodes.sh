@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#PBS -l select=2:system=aurora
+#PBS -l select=2
 #PBS -l walltime=00:30:00
 #PBS -l filesystems=flare
 #PBS -q debug

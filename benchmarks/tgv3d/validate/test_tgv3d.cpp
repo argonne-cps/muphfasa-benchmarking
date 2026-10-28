@@ -1,7 +1,7 @@
 // test_tgv3d.cpp — Correctness test: 3-D TGV global kinetic-energy balance.
 //
 // Mirrors external/muphfasa/tests/regression/tgv2d/test_tgv2d.cpp's use of the
-// normal InputParser/ISimulation/advance() machinery with the non-quiescent
+// normal InputParser/ISimulation/advanceFused() machinery with the non-quiescent
 // initial condition supplied by ../InitData.cpp (see ../Tgv3dAnalytic.H for
 // the analytic IC). This is the validation counterpart to
 // benchmarks/tgv3d/inputs.bench (performance-only, no correctness check) --
@@ -104,7 +104,7 @@ int main(int argc, char* argv[])
         std::vector<amrex::Real> times, ke_hist, curlsq_hist;
 
         for (int step = 0; step <= max_step; ++step) {
-            sim->advance(step);
+            sim->advanceFused(step);
             sim->writeOutput(step);
 
             if (step % params.plotInterval() == 0) {

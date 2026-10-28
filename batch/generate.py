@@ -75,7 +75,7 @@ VALIDATE_MAP = {
 ALL_STAGES = ["compiling", "validating", "performance"]
 
 HEADER_TMPL = """#!/bin/bash -l
-#PBS -l select={nodes}:system=aurora
+#PBS -l select={nodes}
 #PBS -l walltime={walltime}
 #PBS -l filesystems=flare
 #PBS -q {queue}
@@ -227,7 +227,7 @@ def parse_args():
     p.add_argument("--sizes", nargs="+", type=int, default=None, help="N per side, e.g. --sizes 2048 4096")
     p.add_argument("--lattice", type=str, default=None, help="lattice, e.g. D2Q9 (default per case)")
     p.add_argument("--ppn", type=int, default=12, help="ranks per node (default 12 = 6 GPUs x 2 tiles)")
-    p.add_argument("--queue", type=str, default="prod", help="PBS queue (default prod; debug for 1-2 nodes)")
+    p.add_argument("--queue", type=str, default=None, help="PBS queue (default: auto from nodes — debug 1-2, debug-scaling 2-256, prod 256+)")
     p.add_argument("--walltime", type=str, default="00:30:00")
     p.add_argument("--project", type=str, default="muphfasa", help="ALCF project allocation")
     p.add_argument("--stages", nargs="+", choices=ALL_STAGES, default=ALL_STAGES,
@@ -239,6 +239,33 @@ def parse_args():
     p.add_argument("--dry-run", action="store_true", help="print paths without writing")
     return p.parse_args()
 
+
+QUEUE_LIMITS = {
+    "debug": (1, 2),
+    "debug-scaling": (2, 256),
+    "prod": (256, 10624),
+    "capacity": (1, 16),
+    "visualization": (1, 32),
+}
+
+def auto_queue(nodes: int) -> str:
+    if nodes <= 2:
+        return "debug"
+    if nodes <= 256:
+        return "debug-scaling"
+    return "prod"
+
+def validate_queue(queue: str, nodes: int):
+    if queue not in QUEUE_LIMITS:
+        return
+    lo, hi = QUEUE_LIMITS[queue]
+    if not (lo <= nodes <= hi):
+        suggestion = auto_queue(nodes)
+        raise SystemExit(
+            f"queue '{queue}' requires {lo}-{hi} nodes, but --nodes={nodes} was requested. "
+            f"Use -q {suggestion} for {nodes} nodes (see https://docs.alcf.anl.gov/aurora/running-jobs-aurora/#queues) "
+            f"or pass --queue {suggestion} explicitly. prod requires ≥256 nodes."
+        )
 
 def main():
     args = parse_args()
@@ -280,6 +307,8 @@ def main():
     written = []
 
     for case, nodes, size in combos:
+        queue = args.queue or auto_queue(nodes)
+        validate_queue(queue, nodes)
         dim = CASE_DIM[case]
         lattice = args.lattice or CASE_LATTICE[case]
         if size is None:
@@ -314,7 +343,7 @@ def main():
             blocks.append(PERFORMANCE_BLOCK)
 
         header = HEADER_TMPL.format(
-            nodes=nodes, walltime=args.walltime, queue=args.queue, project=args.project,
+            nodes=nodes, walltime=args.walltime, queue=queue, project=args.project,
             job_name=job_name, case=case, size=size, lattice=lattice, ppn=args.ppn,
             dim=dim, ncells=ncells, stages_str=stages_str, out_rel=out_rel,
         )

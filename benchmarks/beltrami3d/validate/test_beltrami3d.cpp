@@ -1,7 +1,7 @@
 // test_beltrami3d.cpp — Correctness test: 3-D Beltrami flow decay.
 //
 // Mirrors external/muphfasa/tests/regression/tgv2d/test_tgv2d.cpp: uses the
-// normal InputParser/ISimulation/advance() machinery with the non-quiescent
+// normal InputParser/ISimulation/advanceFused() machinery with the non-quiescent
 // initial condition supplied by ../InitData.cpp (see ../BeltramiAnalytic.H
 // for the analytic solution both files use). This is the validation
 // counterpart to benchmarks/beltrami3d/inputs.bench (performance-only, no
@@ -83,7 +83,7 @@ int main(int argc, char* argv[])
 
         // run sim
         for (int step = 0; step <= max_step; ++step) {
-            sim->advance(step);
+            sim->advanceFused(step);
             sim->writeOutput(step);
 
             // calc error in rho and vel
