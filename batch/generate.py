@@ -267,6 +267,7 @@ def validate_queue(queue: str, nodes: int):
             f"or pass --queue {suggestion} explicitly. prod requires ≥256 nodes."
         )
 
+
 def main():
     args = parse_args()
 
