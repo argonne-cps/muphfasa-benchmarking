@@ -3,7 +3,7 @@
 #PBS -l walltime=00:30:00
 #PBS -l filesystems=flare
 #PBS -q prod
-#PBS -A <ALCF_PROJECT>
+#PBS -A muphfasa
 # See skills/aurora-overview.md and skills/etiquette.md: use flare (or daos_user),
 # do not submit from /soft/modulefiles, queue limits: prod routes small/medium/large,
 # debug=1-2 nodes max 1 job/user, capacity=1-16 nodes. Check qstat before submit.
@@ -39,6 +39,8 @@ fi
 
 export MPICH_GPU_SUPPORT_ENABLED=1
 export FI_CXI_ATS=0
+export ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE
+export OMP_NUM_THREADS=1
 # Proxy required on compute nodes (see aurora-overview.md)
 export HTTP_PROXY=http://proxy.alcf.anl.gov:3128
 export HTTPS_PROXY=http://proxy.alcf.anl.gov:3128
@@ -70,8 +72,20 @@ BENCH_EXE=$(ls benchmarks/$CASE/bench*.ex benchmarks/$CASE/*.ex 2>/dev/null | he
 INPUTS=benchmarks/$CASE/inputs.bench
 RUN_DIR=run_${CASE}_${SIZE}_${NNODES}
 
-# mpiexec with GPU awareness: 12 ranks/node, 1 GPU per rank (6 GPUs * 2 tiles)
-mpiexec -n $((NNODES * PPN)) --ppn $PPN --gpus-per-node 6 --gpu-bind closest \
+# GPU binding per https://docs.alcf.anl.gov/aurora/running-jobs-aurora/#binding-mpi-ranks-to-gpus
+# 6 PVC GPUs x 2 tiles = 12 tiles/node. PPN=12 uses gpu_tile_compact.sh (1 rank/tile),
+# PPN=6 uses gpu_dev_compact.sh (1 rank/GPU). Wrapper sets ZE_AFFINITY_MASK.
+if [ "$PPN" -eq 12 ]; then
+  CPU_BIND="--cpu-bind=list:1-8:9-16:17-24:25-32:33-40:41-48:53-60:61-68:69-76:77-84:85-92:93-100"
+  GPU_WRAPPER="gpu_tile_compact.sh"
+elif [ "$PPN" -eq 6 ]; then
+  CPU_BIND="--cpu-bind=list:1-16:17-32:33-48:53-68:69-84:85-100"
+  GPU_WRAPPER="gpu_dev_compact.sh"
+else
+  CPU_BIND="--cpu-bind=depth --depth=8"
+  GPU_WRAPPER="gpu_tile_compact.sh"
+fi
+mpiexec -n $((NNODES * PPN)) --ppn $PPN $CPU_BIND $GPU_WRAPPER \
   $BENCH_EXE $INPUTS grid.ncells="$NCELLS" lbm.lattice_type=$LATTICE amr.plot_int=-1 2>&1 | tee $RUN_DIR.log
 
 # Parse MLUPS
