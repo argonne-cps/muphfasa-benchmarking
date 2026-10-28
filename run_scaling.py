@@ -9,6 +9,7 @@ domain is decomposed into enough boxes for those ranks to do real work.
 
 Usage:
   python3 run_scaling.py --case tgv2d --mode weak --sizes 1024 2048 4096 --nodes 1 2 4 --ppn 1
+  python3 run_scaling.py --case lid2d --mode weak --sizes 512 1024 2048 --nodes 1 2 4 --ppn 1
   python3 run_scaling.py --case lid3d --mode weak --sizes 64 128 256 --lattice D3Q19 --plot scaling.png
 """
 
@@ -23,6 +24,7 @@ from helper import BENCH_DIR, build_bench, find_bench_exe, parse_bench_result, r
 CASES = {
     "tgv2d": {"dim": 2, "default_lattice": "D2Q9", "bench_dir": "benchmarks/tgv2d"},
     "tgv3d": {"dim": 3, "default_lattice": "D3Q19", "bench_dir": "benchmarks/tgv3d"},
+    "lid2d": {"dim": 2, "default_lattice": "D2Q9", "bench_dir": "benchmarks/lid2d"},
     "lid3d": {"dim": 3, "default_lattice": "D3Q19", "bench_dir": "benchmarks/lid3d"},
     "beltrami3d": {"dim": 3, "default_lattice": "D3Q19", "bench_dir": "benchmarks/beltrami3d"},
 }

@@ -8,6 +8,7 @@ Scale benchmarks for [muphfasa](https://github.com/biboyd/muphfasa) on Aurora (I
 |------|-----|---------|--------------|---------|
 | `tgv2d` | 2D | D2Q9 | 1024² → 8192² (1024²/GPU) | Taylor-Green vortex, periodic, analytical decay `exp(-2νk²t)` |
 | `tgv3d` | 3D | D3Q19/27 | 128³ → 512³ (128³/GPU) | Taylor-Green vortex 3-D, periodic, `w=0` initial; NOT an exact N-S solution for t>0 (see `Tgv3dAnalytic.H`) |
+| `lid2d` | 2D | D2Q9 | 1024² → 4096² (1024²/GPU) | Lid-driven cavity, closed square (NoSlip x-lo/x-hi/y-lo, `MovingWall` lid at y-hi), Re=100 (`inputs.bench`; override `units.Re`/`lbm.tau` for other Re) |
 | `lid3d` | 3D | D3Q19/27 | 256³ → 1024³ (256³/GPU) | Lid-driven cavity, Re=100 (`inputs.bench`; override `units.Re`/`lbm.tau` for other Re), `MovingWall` |
 | `beltrami3d` | 3D | D3Q19/27 | 128³ → 512³ (128³/GPU) | 3D Beltrami flow, fully periodic, exact N-S |
 
@@ -22,6 +23,10 @@ cd muphfasa-benchmarking
 # 2D TGV, 1024², 100 steps, no plotfiles
 make -C benchmarks/tgv2d -j6 DIM=2
 ./benchmarks/tgv2d/bench2d.gnu.ex benchmarks/tgv2d/inputs.bench
+
+# 2D Lid-driven cavity, 64², 100 steps, no plotfiles
+make -C benchmarks/lid2d -j6 DIM=2
+./benchmarks/lid2d/bench2d.gnu.ex benchmarks/lid2d/inputs.bench
 
 # 3D Lid, 256³
 make -C benchmarks/lid3d -j6 DIM=3
@@ -40,6 +45,7 @@ python3 run_scaling.py --case tgv2d --sizes 1024 2048 4096 --nodes 1 2 4 --ppn 1
 ```sh
 # Build for Aurora (SYCL, MPI, Intel)
 make -C benchmarks/tgv2d DIM=2 USE_MPI=TRUE USE_SYCL=TRUE COMP=intel
+make -C benchmarks/lid2d DIM=2 USE_MPI=TRUE USE_SYCL=TRUE COMP=intel
 make -C benchmarks/lid3d DIM=3 USE_MPI=TRUE USE_SYCL=TRUE COMP=intel
 
 # Batch (PBS, 12 ranks/node, 6 GPUs/node) — requires -l filesystems=flare, see skills/aurora-overview.md
@@ -60,6 +66,8 @@ muphfasa-benchmarking/
     bench.cpp                 # generic timed driver (no analytic plotfiles)
     tgv2d/   GNUmakefile, inputs.bench, InitData.cpp (TGV, overrides src/Simulation/InitData.cpp)
     tgv3d/   GNUmakefile, inputs.bench, InitData.cpp, Tgv3dAnalytic.H (3-D TGV, borrows tgv2d+beltrami3d)
+    lid2d/   GNUmakefile, inputs.bench (closed 2-D lid-driven cavity, walls on all four sides)
+             validate/ (test_lid2d.cpp: mass / KE / power-balance / Ghia Re=100 checks)
     lid3d/   GNUmakefile, inputs.bench (lid-driven, z-wall like couette)
     beltrami3d/ GNUmakefile, inputs.bench, InitData.cpp, BeltramiAnalytic.H
   batch/
@@ -103,6 +111,13 @@ errors.
     kinetic-energy balance** `KE(0)-KE(T) = nu*integral(|curl(u)|^2)dt`, which is exact for
     incompressible Navier-Stokes at any Re/amplitude/duration regardless of vortex stretching —
     a genuine correctness check on the solver, not just a sanity check on the IC wiring.
+  - `lid2d`: no closed-form solution either. `benchmarks/lid2d/validate/` runs the cavity to steady
+    state and checks mass conservation, KE spin-up/plateau, the lid-power vs viscous-dissipation
+    balance, and the Re=100 centerline extrema of Ghia, Ghia & Shin, J. Comput. Phys. 48(3), 387-411
+    (1982), doi:10.1016/0021-9991(82)90058-4 (see its README for the values and tolerances).
+    Exits nonzero on failure. **It currently fails on the pinned `external/muphfasa`** because of a
+    bounce-back bug on diagonal links (`muphfasa_issues.md` item 8); it passes with the one-line
+    fix described there.
   - `lid3d`: no closed-form solution exists for lid-driven cavity (Ghia et al. is a numerical
     reference, not analytic), so there's no `fcompare`-vs-analytic path here; at minimum, compare
     against the upstream 2D `tests/regression/lid_driven_cavity` steady-state profile or a

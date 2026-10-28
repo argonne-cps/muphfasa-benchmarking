@@ -8,6 +8,7 @@ All benchmarks use `bench.cpp` (no I/O) and report `MLUPS`.
 |------|---------------------|----------------------|---------|----|
 | `tgv2d` | 64² (local) → 1024² | 1024²/GPU → 8192² | D2Q9 | Periodic |
 | `tgv3d` | 64³ → 128³ | 128³/GPU → 512³ | D3Q19/27 | Periodic xyz (TGV) |
+| `lid2d` | 64² (local) → 1024² | 1024²/GPU → 4096² | D2Q9 | Closed cavity: NoSlip x-lo/x-hi/y-lo, MovingWall lid at y-hi (Re=100) |
 | `lid3d` | 64³ → 256³ | 256³/GPU → 1024³ | D3Q19/27 | Periodic x,y, z walls (NoSlip/MovingWall) |
 | `beltrami3d` | 64³ → 128³ | 128³/GPU → 512³ | D3Q19/27 | Periodic xyz (Beltrami) |
 
@@ -16,9 +17,11 @@ All benchmarks use `bench.cpp` (no I/O) and report `MLUPS`.
 ```sh
 make -C benchmarks/tgv2d -j6 DIM=2
 make -C benchmarks/tgv3d -j6 DIM=3
+make -C benchmarks/lid2d -j6 DIM=2
 make -C benchmarks/lid3d -j6 DIM=3
 make -C benchmarks/beltrami3d -j6 DIM=3
 # Aurora SYCL
+make -C benchmarks/lid2d DIM=2 USE_MPI=TRUE USE_SYCL=TRUE COMP=intel -j6
 make -C benchmarks/lid3d DIM=3 USE_MPI=TRUE USE_SYCL=TRUE COMP=intel -j6
 make -C benchmarks/tgv3d DIM=3 USE_MPI=TRUE USE_SYCL=TRUE COMP=intel -j6
 ```
@@ -35,8 +38,13 @@ make -C benchmarks/tgv3d DIM=3 USE_MPI=TRUE USE_SYCL=TRUE COMP=intel -j6
 
 # Scaling sweep (helper.py)
 python3 run_scaling.py --case tgv2d --sizes 1024 2048 4096 --nodes 1 2 4 --plot tgv2d_weak.png
+python3 run_scaling.py --case lid2d --sizes 512 1024 2048 --nodes 1 2 4 --mode weak
 python3 run_scaling.py --case lid3d --sizes 128 256 512 --lattice D3Q19 --mode weak
 ```
+
+`lid2d`/`lid3d` pin `lbm.tau` with `units.Re=100`, so the lattice lid velocity is derived as `u_lat = nu_lat*Re/N` and shrinks as the grid grows (0.1 at N=64 for `lid2d`). Sweeping `lid2d` *below* N≈43 trips the `u_lat>0.15` warning, and below N≈22 the `u_lat<0.3` assert aborts the run.
+
+Correctness check for `lid2d` (mass, KE, power balance, Ghia Re=100 extrema): `benchmarks/lid2d/validate/` (see its README; currently fails on the pinned `muphfasa` due to the bounce-back diagonal-link bug in `muphfasa_issues.md` item 8).
 
 ## Aurora
 
