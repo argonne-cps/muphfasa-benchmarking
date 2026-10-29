@@ -6,8 +6,7 @@
 
 # ── Grid ──────────────────────────────────────────────────────────────────
 # Default for local: 64^2; for Aurora weak scaling use ~1024^2 per GPU (override
-# via grid.ncells="1024 1024"). Keep max_grid_size = N to avoid tiling overhead
-# for bench.
+# via grid.ncells="1024 1024"). 
 grid.ncells      = 64 64
 grid.max_grid_size = 64
 grid.n_ghost     = 1
