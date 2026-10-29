@@ -36,7 +36,11 @@ int main(int argc, char* argv[])
         // For MLUPS we report global lattice updates per second.
 
         const int max_step = params.maxStep();
-        const int warmup = std::min(10, max_step/10);
+        int warmup = std::min(10, max_step/10);
+        {
+            amrex::ParmParse ppbench("bench");
+            ppbench.query("warmup", warmup);
+        }
         const int bench_steps = max_step - warmup;
 
         amrex::Print() << "\n=== Benchmark: " << lattice << " "

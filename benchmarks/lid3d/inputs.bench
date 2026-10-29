@@ -10,7 +10,8 @@ grid.max_grid_size = 64
 grid.n_ghost     = 1
 
 # ── Simulation ───────────────────────────────────────────────────────────
-sim.max_step     = 110  # 10 warmup + 100 timed (bench.cpp)
+sim.max_step     = 550  # bench.warmup + bench steps (3D default: 50 warmup + 500 timed)
+bench.warmup     = 50
 sim.stop_time    = -1.0
 
 # ── LBM ──────────────────────────────────────────────────────────────────

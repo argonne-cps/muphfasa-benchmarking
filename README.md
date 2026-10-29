@@ -122,7 +122,7 @@ errors.
     reference, not analytic), so there's no `fcompare`-vs-analytic path here; at minimum, compare
     against the upstream 2D `tests/regression/lid_driven_cavity` steady-state profile or a
     literature Re=100 reference before trusting `lid3d`'s perf numbers.
-- **Perf** (large, no I/O): `inputs.bench` with `amr.plot_int=-1`, `sim.max_step=100`, `lbm.tau=0.8`, measure `MLUPS`.
+- **Perf** (large, no I/O): `inputs.bench` with `amr.plot_int=-1`, `sim.max_step`/`bench.warmup` = 2100/100 (2D: 2000 timed) or 550/50 (3D: 500 timed), `lbm.tau=0.8`, measure `MLUPS`.
 
 ## Performance History (`results/history.jsonl`)
 

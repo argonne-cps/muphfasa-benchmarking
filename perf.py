@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS runs(
 # hostname is included so two different real machines both reporting
 # architecture="local" don't collide and silently drop a legitimate second
 # run (see /home/biboyd/.claude/plans/this-repository-has-been-precious-lamport.md).
-DEDUP_COLS = ["git_sha","test_problem","lattice","ncells","nprocs","architecture","hostname","mpi","compiler"]
+DEDUP_COLS = ["git_sha","test_problem","lattice","ncells","nprocs","architecture","hostname","mpi","compiler","steps"]
 # Unique index on those + date(timestamp) created in init_db
 
 LATTICE_Q = {"D2Q9":9,"D3Q15":15,"D3Q19":19,"D3Q27":27}
@@ -63,7 +63,7 @@ def get_git_info():
     except Exception:
         dirty = 0
     try:
-        amrex_sha = subprocess.check_output(["git","rev-parse","HEAD"], cwd=REPO_ROOT/"external"/"amrex", text=True).strip()[:12]
+        amrex_sha = subprocess.check_output(["git","rev-parse","HEAD"], cwd=REPO_ROOT/"external"/"muphfasa"/"external"/"amrex", text=True).strip()[:12]
     except Exception:
         amrex_sha = ""
     return sha, dirty, amrex_sha
@@ -115,7 +115,7 @@ def init_db(db_path: Path):
     conn = sqlite3.connect(db_path)
     conn.executescript(SCHEMA)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_query ON runs(test_problem, architecture, mpi, nprocs, lattice);")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_dedup ON runs(git_sha, test_problem, lattice, ncells, nprocs, architecture, hostname, mpi, compiler, date(timestamp));")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dedup ON runs(git_sha, test_problem, lattice, ncells, nprocs, architecture, hostname, mpi, compiler, steps, date(timestamp));")
     conn.commit()
     return conn
 
@@ -154,9 +154,9 @@ def parse_inputs_meta(inputs_path: Path, overrides=None):
 def dedup_exists(conn, rec):
     cur = conn.execute(
         "SELECT id FROM runs WHERE git_sha=? AND test_problem=? AND lattice=? AND ncells=? AND nprocs=? "
-        "AND architecture=? AND hostname=? AND mpi=? AND compiler=? AND date(timestamp)=date('now')",
+        "AND architecture=? AND hostname=? AND mpi=? AND compiler=? AND steps=? AND date(timestamp)=date('now')",
         (rec["git_sha"], rec["test_problem"], rec["lattice"], rec["ncells"], rec["nprocs"],
-         rec["architecture"], rec["hostname"], rec["mpi"], rec["compiler"])
+         rec["architecture"], rec["hostname"], rec["mpi"], rec["compiler"], rec["steps"])
     )
     return cur.fetchone() is not None
 
