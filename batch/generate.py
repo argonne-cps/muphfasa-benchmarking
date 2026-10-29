@@ -253,7 +253,7 @@ grep BENCH_RESULT run.log || echo "No BENCH_RESULT found"
 
 source $HOME/pyvenv_lbm/bin/activate
 python3 "$REPO_ROOT/perf.py" log --test "$CASE" --lattice "$LATTICE" --ncells "$NCELLS" --nprocs $((NNODES * PPN)) --nnodes $NNODES --ppn $PPN --inputs "$RUN_DIR/inputs.bench" --log "$RUN_DIR/run.log" --steps $STEPS --warmup $WARMUP --compiler intel || echo "WARNING: perf.py log failed (exit $?)"
-echo "Performance stage done: $RUN_DIR/run.log (also in repo .cache/perf.db; history.jsonl only on main branch)"
+echo "Performance stage done: $RUN_DIR/run.log (also in repo .cache/perf.db; history.jsonl only when muphfasa is on main)"
 """
 
 

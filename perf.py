@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS runs(
   id INTEGER PRIMARY KEY,
   timestamp TEXT NOT NULL,
   git_sha TEXT NOT NULL, git_dirty INT,
+  muphfasa_sha TEXT,
   test_problem TEXT NOT NULL,
   dim INT, lattice TEXT, Q INT,
   ncells TEXT, total_cells INT,
@@ -46,7 +47,7 @@ CREATE TABLE IF NOT EXISTS runs(
 # hostname is included so two different real machines both reporting
 # architecture="local" don't collide and silently drop a legitimate second
 # run (see /home/biboyd/.claude/plans/this-repository-has-been-precious-lamport.md).
-DEDUP_COLS = ["git_sha","test_problem","lattice","ncells","nprocs","architecture","hostname","mpi","compiler","steps"]
+DEDUP_COLS = ["git_sha","muphfasa_sha","test_problem","lattice","ncells","nprocs","architecture","hostname","mpi","compiler","steps"]
 # Unique index on those + date(timestamp) created in init_db
 
 LATTICE_Q = {"D2Q9":9,"D3Q15":15,"D3Q19":19,"D3Q27":27}
@@ -66,7 +67,11 @@ def get_git_info():
         amrex_sha = subprocess.check_output(["git","rev-parse","HEAD"], cwd=REPO_ROOT/"external"/"muphfasa"/"external"/"amrex", text=True).strip()[:12]
     except Exception:
         amrex_sha = ""
-    return sha, dirty, amrex_sha
+    try:
+        muphfasa_sha = subprocess.check_output(["git","rev-parse","HEAD"], cwd=REPO_ROOT/"external"/"muphfasa", text=True).strip()
+    except Exception:
+        muphfasa_sha = ""
+    return sha, dirty, amrex_sha, muphfasa_sha
 
 def get_architecture():
     hostname = socket.gethostname()
@@ -94,16 +99,53 @@ def is_main_branch():
         return False
     if os.getenv("GITHUB_REF") == "refs/heads/main":
         return True
+
+    # Primary gate: muphfasa submodule is ancestor of origin/main (or local main).
+    # This is the intended history gate — benchmarking repo branch is irrelevant.
+    muphfasa_root = REPO_ROOT / "external" / "muphfasa"
+    if muphfasa_root.is_dir():
+        try:
+            muphfasa_sha = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=muphfasa_root, text=True
+            ).strip()
+            # Prefer origin/main (fetched tip), fall back to local refs
+            for ref in ("origin/main", "refs/heads/main", "refs/remotes/origin/main"):
+                try:
+                    ref_sha = subprocess.check_output(
+                        ["git", "rev-parse", ref], cwd=muphfasa_root, text=True
+                    ).strip()
+                except Exception:
+                    continue
+                # ancestor check includes equality (HEAD == main)
+                try:
+                    r = subprocess.run(
+                        ["git", "merge-base", "--is-ancestor", muphfasa_sha, ref_sha],
+                        cwd=muphfasa_root,
+                    )
+                    if r.returncode == 0:
+                        return True
+                except Exception:
+                    pass
+                if muphfasa_sha == ref_sha:
+                    return True
+            # Not ancestor of any main ref -> not main
+            return False
+        except Exception:
+            pass
+
+    # Fallback when muphfasa checkout is absent (e.g. test env): old
+    # benchmarking-repo check for backwards compat.
     try:
-        branch = subprocess.check_output(["git","rev-parse","--abbrev-ref","HEAD"], cwd=REPO_ROOT, text=True).strip()
+        branch = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=REPO_ROOT, text=True
+        ).strip()
         if branch == "main":
             return True
     except Exception:
         pass
-    # fallback: check if HEAD == refs/heads/main
     try:
-        head = (REPO_ROOT/".git"/"refs"/"heads"/"main").read_text().strip()
-        sha,_ ,_ = get_git_info()
+        head = (REPO_ROOT / ".git" / "refs" / "heads" / "main").read_text().strip()
+        sha, _, _, _ = get_git_info()
         if head == sha:
             return True
     except Exception:
@@ -114,8 +156,15 @@ def init_db(db_path: Path):
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.executescript(SCHEMA)
+    # Migrate existing DBs: add muphfasa_sha column if missing (pre-schema rows)
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(runs)").fetchall()]
+        if "muphfasa_sha" not in cols:
+            conn.execute("ALTER TABLE runs ADD COLUMN muphfasa_sha TEXT")
+    except Exception:
+        pass
     conn.execute("CREATE INDEX IF NOT EXISTS idx_query ON runs(test_problem, architecture, mpi, nprocs, lattice);")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_dedup ON runs(git_sha, test_problem, lattice, ncells, nprocs, architecture, hostname, mpi, compiler, steps, date(timestamp));")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dedup ON runs(git_sha, muphfasa_sha, test_problem, lattice, ncells, nprocs, architecture, hostname, mpi, compiler, steps, date(timestamp));")
     conn.commit()
     return conn
 
@@ -153,9 +202,9 @@ def parse_inputs_meta(inputs_path: Path, overrides=None):
 
 def dedup_exists(conn, rec):
     cur = conn.execute(
-        "SELECT id FROM runs WHERE git_sha=? AND test_problem=? AND lattice=? AND ncells=? AND nprocs=? "
+        "SELECT id FROM runs WHERE git_sha=? AND muphfasa_sha=? AND test_problem=? AND lattice=? AND ncells=? AND nprocs=? "
         "AND architecture=? AND hostname=? AND mpi=? AND compiler=? AND steps=? AND date(timestamp)=date('now')",
-        (rec["git_sha"], rec["test_problem"], rec["lattice"], rec["ncells"], rec["nprocs"],
+        (rec["git_sha"], rec["muphfasa_sha"], rec["test_problem"], rec["lattice"], rec["ncells"], rec["nprocs"],
          rec["architecture"], rec["hostname"], rec["mpi"], rec["compiler"], rec["steps"])
     )
     return cur.fetchone() is not None
@@ -177,9 +226,12 @@ def log_run(args):
             sys.exit(2)
         mlups = float(m.group(1)); ms = float(m.group(2)); elapsed = float(m.group(3))
 
-    git_sha, git_dirty, amrex_version = get_git_info()
+    git_sha, git_dirty, amrex_version, muphfasa_sha = get_git_info()
     if args.git_sha:
         git_sha = args.git_sha
+    # allow explicit override for muphfasa SHA (rare, testing)
+    if getattr(args, "muphfasa_sha", None):
+        muphfasa_sha = args.muphfasa_sha
     arch, hostname = get_architecture()
     if args.arch:
         arch = args.arch
@@ -207,6 +259,7 @@ def log_run(args):
     rec = {
         "timestamp": timestamp,
         "git_sha": git_sha, "git_dirty": git_dirty,
+        "muphfasa_sha": muphfasa_sha,
         "test_problem": args.test,
         "dim": dim, "lattice": lattice, "Q": q,
         "ncells": ncells, "total_cells": total_cells,
@@ -233,17 +286,17 @@ def log_run(args):
     placeholders = ",".join(["?"]*len(cols))
     conn.execute(f"INSERT INTO runs ({','.join(cols)}) VALUES ({placeholders})", vals)
     conn.commit()
-    print(f"Logged to {cache_db}: {rec['test_problem']} {rec['lattice']} {rec['ncells']} mlups={mlups:.1f} sha={git_sha[:7]}")
+    print(f"Logged to {cache_db}: {rec['test_problem']} {rec['lattice']} {rec['ncells']} mlups={mlups:.1f} sha={git_sha[:7]} muphfasa={muphfasa_sha[:7] if muphfasa_sha else 'unknown'}")
     if is_main_branch():
         jsonl.parent.mkdir(parents=True, exist_ok=True)
         with open(jsonl,"a") as f:
             f.write(json.dumps(rec, sort_keys=True)+"\n")
-        origin = "CI" if rec["ci"] else "local run on main -- NOT a vetted/curated measurement"
+        origin = "CI" if rec["ci"] else "local run with muphfasa on main -- NOT a vetted/curated measurement"
         print(f"Appended to {jsonl} ({origin})")
         # also ensure results/perf.db is synced
         sync_db(jsonl, DEFAULT_RESULTS_DB)
     else:
-        print(f"Not on main branch (use MUPHFASA_BENCH_TRACK_MAIN=1 or --force to write history); only .cache updated.")
+        print(f"Not on muphfasa main (muphfasa {muphfasa_sha[:7] if muphfasa_sha else 'unknown'} not ancestor of origin/main; use MUPHFASA_BENCH_TRACK_MAIN=1 to force); only .cache updated.")
     return 0
 
 def sync_db(jsonl_path: Path, db_path: Path):
@@ -345,7 +398,7 @@ def main():
     a.add_argument("--inputs", type=Path); a.add_argument("--override", action="append", default=[])
     a.add_argument("--compiler", type=str); a.add_argument("--comp-flags", type=str)
     a.add_argument("--steps", type=int); a.add_argument("--warmup", type=int)
-    a.add_argument("--git-sha", type=str)
+    a.add_argument("--git-sha", type=str); a.add_argument("--muphfasa-sha", type=str)
     a.add_argument("--db", type=Path); a.add_argument("--jsonl", type=Path)
     a.add_argument("--force", action="store_true", help="bypass dedup")
     a.set_defaults(func=lambda a: log_run(a))
