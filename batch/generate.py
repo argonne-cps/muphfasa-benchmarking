@@ -76,7 +76,7 @@ VALIDATE_MAP = {
     "tgv2d":        ("external/muphfasa/tests/regression/tgv2d",          None),
     "tgv3d":        ("benchmarks/tgv3d/validate",                           None),
     "lid2d":        ("external/muphfasa/tests/regression/lid2d",            None),
-    "lid3d":        (None,                                                   None),  # no validate available
+    "lid3d":        ("benchmarks/lid3d/validate",                           None),
     "beltrami3d":   ("benchmarks/beltrami3d/validate",                       None),
     "couette2d":    ("external/muphfasa/tests/regression/couette",           None),
     "couette3d":    ("external/muphfasa/tests/regression/couette",           None),

@@ -1,0 +1,44 @@
+# Lid-driven cavity Re=1000 variant for the Albensoeder et al. (2005) comparison.
+# Usage:
+#   ./test_lid3d3d.gnu.ex inputs.re1000
+# or with overrides for a convergence study:
+#   ./test_lid3d3d.gnu.ex inputs.re1000 grid.ncells="64 64 64" grid.max_grid_size=64
+#   ./test_lid3d3d.gnu.ex inputs.re1000 grid.ncells="96 96 96" grid.max_grid_size=48
+# Requires an even cubic N. At N=32 tau ~0.505 (BGK warning, still runnable but
+# marginal); N=48-64 recommended for the literature comparison. See README.md.
+
+# ── Grid ──────────────────────────────────────────────────────────────────
+grid.ncells      = 48 48 48
+grid.max_grid_size = 48
+grid.n_ghost     = 1
+
+# ── Simulation ───────────────────────────────────────────────────────────
+sim.max_step     = 20000
+sim.stop_time    = -1.0
+
+# ── LBM ──────────────────────────────────────────────────────────────────
+# Pin tau consistent with Re=1000 at N=48 (tau ~0.56 at N=48 with U_lid=0.1);
+# tune grid.ncells and sim.max_step together: steady state needs ~20*N/U_lat steps.
+lbm.lattice_type = D3Q19
+lbm.tau          = 0.692
+
+# ── Physical units ─────────────────────────────────────────────────────────
+units.ref_length    = 1.0
+units.ref_velocity  = 0.05
+units.ref_density   = 1.0
+units.Re            = 1000.0
+
+# ── Boundary conditions ────────────────────────────────────────────────────
+bc.lo_type = NoSlip  NoSlip  NoSlip
+bc.hi_type = NoSlip  NoSlip  MovingWall
+bc.hiz_Uwall = 0.05  0.0  0.0
+
+# ── Geometry ───────────────────────────────────────────────────────────────
+geometry.prob_lo    = 0.0  0.0  0.0
+geometry.prob_hi    = 1.0  1.0  1.0
+
+# ── Output ─────────────────────────────────────────────────────────────────
+amr.plot_int        = 1000
+amr.chk_int         = 20001
+amr.plot_file       = plt
+amr.check_file      = chk

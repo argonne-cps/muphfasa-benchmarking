@@ -1,0 +1,48 @@
+# Correctness test: 3-D lid-driven cavity (closed cube), global checks +
+# Albensoeder centerline extrema.
+# Closed cube, lid at z=hi moving in +x. Re=100 by default (stable BGK at
+# N=32, matches benchmarks/lid3d/inputs.bench which is also Re=100) -- the
+# global checks (mass, KE spin-up/plateau, power balance) run at any Re.
+# To exercise the Albensoeder et al. (2005) Re=1000 comparison, override
+# Re and N, e.g.:
+#   ./test_lid3d3d.gnu.ex inputs.re1000 grid.ncells="64 64 64" grid.max_grid_size=64
+# or via ParmParse: units.Re=1000 grid.ncells="64 64 64".
+# See README.md for the reference values, axis mapping, and tolerances.
+
+# ── Grid ──────────────────────────────────────────────────────────────────
+grid.ncells      = 32 32 32   # cubic; even (center between cells)
+grid.max_grid_size = 32
+grid.n_ghost     = 1
+
+# ── Simulation ───────────────────────────────────────────────────────────
+# Run to steady state; amr.plot_int doubles as the diagnostic sampling interval.
+# N=32 -> 20000 steps ~10-20 s single core; N=64 needs ~40000 steps, see inputs.re1000.
+sim.max_step     = 10000
+sim.stop_time    = -1.0
+
+# ── LBM ──────────────────────────────────────────────────────────────────
+lbm.lattice_type = D3Q19
+lbm.tau          = 0.692  # Re=100, U_lat~0.05 at N=32 (derived from units below)
+
+# ── Physical units ─────────────────────────────────────────────────────────
+# Closed cavity lid speed set by bc.hiz_Uwall = units.ref_velocity.
+units.ref_length    = 1.0
+units.ref_velocity  = 0.05
+units.ref_density   = 1.0
+units.Re            = 100.0
+
+# ── Boundary conditions ────────────────────────────────────────────────────
+# All walls NoSlip except lid at z=hi (MovingWall in +x).
+bc.lo_type = NoSlip  NoSlip  NoSlip
+bc.hi_type = NoSlip  NoSlip  MovingWall
+bc.hiz_Uwall = 0.05  0.0  0.0
+
+# ── Geometry ───────────────────────────────────────────────────────────────
+geometry.prob_lo    = 0.0  0.0  0.0
+geometry.prob_hi    = 1.0  1.0  1.0
+
+# ── Output ─────────────────────────────────────────────────────────────────
+amr.plot_int        = 500
+amr.chk_int         = 10001
+amr.plot_file       = plt
+amr.check_file      = chk

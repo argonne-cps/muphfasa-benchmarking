@@ -44,7 +44,7 @@ python3 run_scaling.py --case lid3d --sizes 128 256 512 --lattice D3Q19 --mode w
 
 `lid2d`/`lid3d` pin `lbm.tau` with `units.Re=100`, so the lattice lid velocity is derived as `u_lat = nu_lat*Re/N` and shrinks as the grid grows (0.1 at N=64 for `lid2d`). Sweeping `lid2d` *below* N≈43 trips the `u_lat>0.15` warning, and below N≈22 the `u_lat<0.3` assert aborts the run.
 
-Correctness check for `lid2d` (mass, KE, power balance, Ghia Re=100 extrema): `benchmarks/lid2d/validate/` (see its README; currently fails on the pinned `muphfasa` due to the bounce-back diagonal-link bug in `muphfasa_issues.md` item 8).
+Correctness checks: `benchmarks/lid2d/validate/` (mass, KE, power balance, Ghia Re=100 extrema) and `benchmarks/lid3d/validate/` (mass, KE, power balance, Albensoeder & Kuhlmann 2005 Re=1000 extrema; closed cube, see its README) — both currently fail on the pinned `muphfasa` due to the bounce-back diagonal-link bug in `muphfasa_issues.md` item 8.
 
 ## Aurora
 
