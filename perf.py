@@ -240,7 +240,7 @@ def log_run(args):
     meta = parse_inputs_meta(inputs_path, args.override)
     ncells = args.ncells or meta["ncells"]
     lattice = args.lattice or meta["lattice"]
-    dim = meta["dim"] if not args.test else {"tgv2d":2,"lid2d":2,"tgv3d":3,"lid3d":3,"beltrami3d":3}.get(args.test, meta["dim"])
+    dim = meta["dim"] if not args.test else {"tgv2d":2,"lid2d":2,"tgv3d":3,"lid3d":3,"beltrami3d":3,"couette2d":2,"couette3d":3,"poiseuille2d":2,"poiseuille3d":3,"uniform2d":2,"uniform3d":3}.get(args.test, meta["dim"])
     total_cells = meta["total_cells"]
     if ncells:
         try:
@@ -389,7 +389,7 @@ def main():
     sub=ap.add_subparsers(dest="cmd", required=True)
     # log
     a=sub.add_parser("log", help="log a bench result")
-    a.add_argument("--test", required=True, choices=["tgv2d","lid2d","tgv3d","lid3d","beltrami3d"])
+    a.add_argument("--test", required=True, choices=["tgv2d","lid2d","tgv3d","lid3d","beltrami3d","couette2d","couette3d","poiseuille2d","poiseuille3d","uniform2d","uniform3d"])
     a.add_argument("--log", type=Path, help="run.log with BENCH_RESULT")
     a.add_argument("--mlups", type=float); a.add_argument("--ms-per-step", dest="ms_per_step", type=float); a.add_argument("--elapsed", type=float)
     a.add_argument("--lattice", type=str); a.add_argument("--ncells", type=str); a.add_argument("--nprocs", type=int)

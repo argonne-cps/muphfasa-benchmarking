@@ -17,8 +17,8 @@ Stages
 Each script can include any combination of three stages (in order):
 
   compiling    build bench (+ validate) exes with MPI+SYCL
-  validating   run correctness checks (priority: this repo's benchmarks/*/validate
-               over external/muphfasa/tests/regression/*)
+  validating   run correctness checks (priority: external/muphfasa/tests/regression/*
+               over this repo's benchmarks/*/validate when both exist)
   performance  run bench.cpp for MLUPS and log via perf.py
 
 Pick stages with --stages. Default is all three. Examples:
@@ -56,20 +56,34 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CASE_DIM = {
     "tgv2d": 2, "lid2d": 2,
     "tgv3d": 3, "lid3d": 3, "beltrami3d": 3,
+    "couette2d": 2, "couette3d": 3,
+    "poiseuille2d": 2, "poiseuille3d": 3,
+    "uniform2d": 2, "uniform3d": 3,
 }
 CASE_LATTICE = {
     "tgv2d": "D2Q9", "lid2d": "D2Q9",
     "tgv3d": "D3Q19", "lid3d": "D3Q19", "beltrami3d": "D3Q19",
+    "couette2d": "D2Q9", "couette3d": "D3Q19",
+    "poiseuille2d": "D2Q9", "poiseuille3d": "D3Q19",
+    "uniform2d": "D2Q9", "uniform3d": "D3Q19",
 }
 
-# Validate location per case: (local_path, external_fallback)
-# Priority to this repo per user request.
+# Validate location per case: (primary, secondary)
+# Primary is external/muphfasa/tests/regression/* when it exists (canonical);
+# secondary is this repo's benchmarks/*/validate for custom checks (tgv3d,
+# beltrami3d). User trusts upstream for lid2d etc., so external wins.
 VALIDATE_MAP = {
-    "tgv2d":      ("benchmarks/tgv2d/validate",       "external/muphfasa/tests/regression/tgv2d"),
-    "tgv3d":      ("benchmarks/tgv3d/validate",       None),
-    "lid2d":      ("benchmarks/lid2d/validate",       "external/muphfasa/tests/regression/lid_driven_cavity"),
-    "lid3d":      (None,                               None),  # no validate available
-    "beltrami3d": ("benchmarks/beltrami3d/validate",  None),
+    "tgv2d":        ("external/muphfasa/tests/regression/tgv2d",          None),
+    "tgv3d":        ("benchmarks/tgv3d/validate",                           None),
+    "lid2d":        ("external/muphfasa/tests/regression/lid2d",            None),
+    "lid3d":        (None,                                                   None),  # no validate available
+    "beltrami3d":   ("benchmarks/beltrami3d/validate",                       None),
+    "couette2d":    ("external/muphfasa/tests/regression/couette",           None),
+    "couette3d":    ("external/muphfasa/tests/regression/couette",           None),
+    "poiseuille2d": ("external/muphfasa/tests/regression/poiseuille",        None),
+    "poiseuille3d": ("external/muphfasa/tests/regression/poiseuille",        None),
+    "uniform2d":    ("external/muphfasa/tests/regression/uniform_force",    None),
+    "uniform3d":    ("external/muphfasa/tests/regression/uniform_force",    None),
 }
 
 ALL_STAGES = ["compiling", "validating", "performance"]
@@ -136,9 +150,13 @@ export https_proxy=http://proxy.alcf.anl.gov:3128
 COMPILING_BLOCK = """
 # ── Stage: compiling ──────────────────────────────────────────────────
 echo "=== COMPILING $CASE (DIM=$DIM) ==="
-make -C benchmarks/$CASE -j4 $BUILD_OPTS
-BENCH_EXE_NAME=$(make -C benchmarks/$CASE $BUILD_OPTS print-executable 2>/dev/null | sed -n 's/^executable is \\(.*\\)$/\\1/p')
-echo "Built benchmarks/$CASE/$BENCH_EXE_NAME"
+if [ -d "benchmarks/$CASE" ]; then
+  make -C benchmarks/$CASE -j4 $BUILD_OPTS
+  BENCH_EXE_NAME=$(make -C benchmarks/$CASE $BUILD_OPTS print-executable 2>/dev/null | sed -n 's/^executable is \\(.*\\)$/\\1/p')
+  echo "Built benchmarks/$CASE/$BENCH_EXE_NAME"
+else
+  echo "No bench for $CASE (validate-only) — skipping bench build"
+fi
 {validate_compile}
 echo "Compile stage done."
 """
@@ -156,12 +174,20 @@ echo "Validate stage done."
 """
 
 VALIDATE_RUN_KNOWN = """if [ -d "{validate_dir}" ]; then
-  echo "Running validate from {validate_dir} (priority: this repo)"
+  echo "Running validate from {validate_dir} (upstream regression)"
   VALIDATE_EXE=$(ls {validate_dir}/test_*.ex {validate_dir}/*.ex 2>/dev/null | head -1)
   if [ -z "$VALIDATE_EXE" ]; then
     echo "ERROR: no validate exe in {validate_dir} — did compiling stage run?"; exit 1
   fi
   echo "Validate exe: $VALIDATE_EXE"
+  # Pick inputs file: 3D cases use inputs3d when present
+  VALIDATE_INPUTS="{validate_dir}/inputs"
+  VALIDATE_INPUTS_NAME="inputs"
+  if [ "$DIM" -eq 3 ] && [ -f "{validate_dir}/inputs3d" ]; then
+    VALIDATE_INPUTS="{validate_dir}/inputs3d"
+    VALIDATE_INPUTS_NAME="inputs3d"
+  fi
+  echo "Validate inputs: $VALIDATE_INPUTS"
   # Stage validate to flare (log + any plotfiles live on Lustre)
   VALIDATE_FLARE_DIR="$FLARE_ROOT/${{CASE}}_${{SIZE}}_validate_${{PBS_JOBID%%.*}}"
   # When not under PBS (local --dry-run) PBS_JOBID is empty — fall back to repo-local dir
@@ -171,18 +197,14 @@ VALIDATE_RUN_KNOWN = """if [ -d "{validate_dir}" ]; then
   mkdir -p "$VALIDATE_FLARE_DIR"
   # Copy exe + inputs to flare run dir
   cp "$VALIDATE_EXE" "$VALIDATE_FLARE_DIR"/
-  if [ -f "{validate_dir}/inputs" ]; then
-    cp "{validate_dir}/inputs" "$VALIDATE_FLARE_DIR"/
-  elif [ -d "{validate_dir}/inputs" ]; then
-    cp -r "{validate_dir}/inputs" "$VALIDATE_FLARE_DIR"/
-  fi
+  cp "$VALIDATE_INPUTS" "$VALIDATE_FLARE_DIR"/ 2>/dev/null || cp -r "$VALIDATE_INPUTS" "$VALIDATE_FLARE_DIR"/ 2>/dev/null || true
   echo "Validate flare dir: $VALIDATE_FLARE_DIR (pwd before: $PWD)"
   # Validate runs are small (N=32-64) — single rank is sufficient
   VALIDATE_EXE_NAME=$(basename "$VALIDATE_EXE")
   if [ "$NNODES" -gt 1 ]; then
-    (cd "$VALIDATE_FLARE_DIR" && mpiexec -n 1 --ppn 1 ./$VALIDATE_EXE_NAME inputs 2>&1 | tee validate_${{CASE}}_${{SIZE}}.log)
+    (cd "$VALIDATE_FLARE_DIR" && mpiexec -n 1 --ppn 1 ./$VALIDATE_EXE_NAME $VALIDATE_INPUTS_NAME 2>&1 | tee validate_${{CASE}}_${{SIZE}}.log)
   else
-    (cd "$VALIDATE_FLARE_DIR" && ./$VALIDATE_EXE_NAME inputs 2>&1 | tee validate_${{CASE}}_${{SIZE}}.log)
+    (cd "$VALIDATE_FLARE_DIR" && ./$VALIDATE_EXE_NAME $VALIDATE_INPUTS_NAME 2>&1 | tee validate_${{CASE}}_${{SIZE}}.log)
   fi
   echo "Validate log: $VALIDATE_FLARE_DIR/validate_${{CASE}}_${{SIZE}}.log"
 else
@@ -195,8 +217,9 @@ VALIDATE_RUN_NONE = """echo "No validate available for $CASE — skipping (no be
 PERFORMANCE_BLOCK = """
 # ── Stage: performance ────────────────────────────────────────────────
 echo "=== PERFORMANCE $CASE size=$SIZE lattice=$LATTICE nodes=$NNODES ==="
-
-# Resolve exe name from the build system (exact, not a glob — handles .sycl.MPI.ex vs .gnu.ex etc.)
+if [ ! -d "benchmarks/$CASE" ]; then
+  echo "No bench for $CASE (validate-only case) — skipping performance stage"
+else
 EXE_NAME=$(make -C benchmarks/$CASE $BUILD_OPTS print-executable 2>/dev/null | sed -n 's/^executable is \\(.*\\)$/\\1/p')
 if [ -z "$EXE_NAME" ]; then echo "ERROR: could not determine bench exe name (make print-executable failed)"; exit 1; fi
 BENCH_EXE="benchmarks/$CASE/$EXE_NAME"
@@ -254,16 +277,17 @@ grep BENCH_RESULT run.log || echo "No BENCH_RESULT found"
 source $HOME/pyvenv_lbm/bin/activate
 python3 "$REPO_ROOT/perf.py" log --test "$CASE" --lattice "$LATTICE" --ncells "$NCELLS" --nprocs $((NNODES * PPN)) --nnodes $NNODES --ppn $PPN --inputs "$RUN_DIR/inputs.bench" --log "$RUN_DIR/run.log" --steps $STEPS --warmup $WARMUP --compiler intel || echo "WARNING: perf.py log failed (exit $?)"
 echo "Performance stage done: $RUN_DIR/run.log (also in repo .cache/perf.db; history.jsonl only when muphfasa is on main)"
+fi
 """
 
 
 def resolve_validate_dir(case: str) -> str | None:
-    local, fallback = VALIDATE_MAP.get(case, (None, None))
-    if local and (REPO_ROOT / local).is_dir():
-        return local
-    if fallback and (REPO_ROOT / fallback).is_dir():
-        return fallback
-    return local or fallback
+    primary, secondary = VALIDATE_MAP.get(case, (None, None))
+    if primary and (REPO_ROOT / primary).is_dir():
+        return primary
+    if secondary and (REPO_ROOT / secondary).is_dir():
+        return secondary
+    return primary or secondary
 
 
 def parse_args():
