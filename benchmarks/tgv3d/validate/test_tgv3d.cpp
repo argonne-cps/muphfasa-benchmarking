@@ -14,7 +14,7 @@
 // incompressible Navier-Stokes regardless of vortex stretching: the global
 // kinetic-energy balance
 //
-//   d/dt [ (1/2) integral |u|^2 dV ] = -nu * integral |curl(u)|^2 dV
+//   d/dt [ (1/2) integral |u|^2 dV ] = -nu * integral |vort|^2 dV
 //
 // Nonlinear advection and the pressure gradient do no net work on a
 // periodic, divergence-free field -- they only move energy between Fourier
@@ -53,10 +53,10 @@ using namespace muphfasa;
 
 namespace {
 
-// KE = (1/2) sum|u|^2 ; curl_sq = sum|curl(u)|^2, both in lattice units
+// KE = (1/2) sum|u|^2 ; enstrophy = 1/2 sum|curl(u)|^2, both in lattice units
 // (dx=dt=1), via central differences on a periodic-ghost-filled copy of vel.
-void computeEnergyAndCurlSq(const amrex::MultiFab& vel, const amrex::Geometry& geom,
-                            amrex::Real& ke, amrex::Real& curl_sq)
+void computeEnergyAndEnstrophy(const amrex::MultiFab& vel, const amrex::Geometry& geom,
+                            amrex::Real& ke, amrex::Real& enstrophy)
 {
     ke = amrex::Real(0.5) * amrex::MultiFab::Dot(vel, 0, vel.nComp(), 0);
 
@@ -82,7 +82,7 @@ void computeEnergyAndCurlSq(const amrex::MultiFab& vel, const amrex::Geometry& g
             w(i,j,k,2) = dvdx - dudy;
         });
     }
-    curl_sq = amrex::MultiFab::Dot(curl, 0, curl.nComp(), 0);
+    enstrophy = amrex::Real(0.5) * amrex::MultiFab::Dot(curl, 0, curl.nComp(), 0);
 }
 
 } // namespace
@@ -101,31 +101,40 @@ int main(int argc, char* argv[])
         const int max_step = params.maxStep();
         const amrex::Geometry& geom = sim->geom();
 
-        std::vector<amrex::Real> times, ke_hist, curlsq_hist;
+        std::vector<amrex::Real> times, ke_hist, enstrophy_hist;
 
         for (int step = 0; step <= max_step; ++step) {
             sim->advanceFused(step);
             sim->writeOutput(step);
 
             if (step % params.plotInterval() == 0) {
-                amrex::Real ke, curl_sq;
-                computeEnergyAndCurlSq(sim->vel(), geom, ke, curl_sq);
-                times.push_back(sim->time());
+                amrex::Real ke, enstrophy;
+                // calc ke and enstrophy
+                computeEnergyAndEnstrophy(sim->vel(), geom, ke, enstrophy);
                 ke_hist.push_back(ke);
-                curlsq_hist.push_back(curl_sq);
+                enstrophy_hist.push_back(enstrophy);
+
+                times.push_back(sim->time());
                 amrex::Print() << "At Time=" << sim->time()
-                               << ": KE=" << ke << " |curl(u)|^2=" << curl_sq << "\n";
+                               << ": k=" << ke << " eps=" << enstrophy << "\n";
             }
         }
 
-        // trapezoidal integral of nu*|curl(u)|^2 over the recorded times
-        amrex::Real dissipation_integral = amrex::Real(0.0);
+        // trapezoidal integral of nu*enstrophy over the recorded times
+        amrex::Real dissipation_integral_lat = amrex::Real(0.0);
         for (std::size_t n = 1; n < times.size(); ++n) {
             const amrex::Real dt = times[n] - times[n - 1];
-            dissipation_integral += amrex::Real(0.5) * dt * nu * (curlsq_hist[n] + curlsq_hist[n - 1]);
+            dissipation_integral_lat += amrex::Real(0.5) * dt* (enstrophy_hist[n] + enstrophy_hist[n - 1]);
         }
 
-        const amrex::Real ke_drop = ke_hist.front() - ke_hist.back();
+        // multiply by factor to return right relation
+        dissipation_integral_lat*=amrex::Real(2) * nu ;
+
+        const amrex::Real ke_drop_lat = ke_hist.front() - ke_hist.back();
+        // revert to physical units
+        amrex::Real dissipation_integral = sim->units().toPhysicalEnergy(dissipation_integral_lat);
+        amrex::Real ke_drop = sim->units().toPhysicalEnergy(ke_drop_lat);
+
         const amrex::Real denom = std::max(std::abs(ke_drop), amrex::Real(1e-30));
         const amrex::Real rel_err = std::abs(ke_drop - dissipation_integral) / denom;
 

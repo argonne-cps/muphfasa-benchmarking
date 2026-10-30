@@ -62,7 +62,7 @@ inline void initUVW(amrex::Real x, amrex::Real y, amrex::Real z,
     w = amrex::Real(0.0);
 }
 
-inline amrex::Real intRho(amrex::Real x, amrex::Real y, amrex::Real z,
+inline amrex::Real initRho(amrex::Real x, amrex::Real y, amrex::Real z,
                             amrex::Real k, amrex::Real u0, amrex::Real nu, amrex::Real t) noexcept {
     amrex::ignore_unused(x,y,z,k,u0,nu,t);
     return amrex::Real(1.0);
