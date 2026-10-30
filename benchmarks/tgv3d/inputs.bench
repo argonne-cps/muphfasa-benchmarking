@@ -38,5 +38,9 @@ geometry.prob_lo    = 0.0  0.0  0.0
 geometry.prob_hi    = 1.0  1.0  1.0
 
 # ── Output ─────────────────────────────────────────────────────────────────
+# Benchmark: no plotfile I/O by default; checkpoint is opt-in via bench.save_checkpoint.
 amr.plot_int        = -1
 amr.chk_int         = -1
+amr.plot_file       = plt
+amr.check_file      = chk
+bench.save_checkpoint = 0   # set to 1 to write chk<max_step> after timed region (for analysis / load-balancing)

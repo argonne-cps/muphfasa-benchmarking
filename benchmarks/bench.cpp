@@ -5,6 +5,7 @@
 // benchmark's own InitData.cpp (if any) overriding the default quiescent
 // start via VPATH precedence. Measures MLUPS without plotfile overhead.
 
+#include "IO/Checkpoint.H"
 #include "IO/InputParser.H"
 #include "Simulation/ISimulation.H"
 #include "Simulation/SimulationFactory.H"
@@ -32,14 +33,22 @@ int main(int argc, char* argv[])
         std::string lattice = params.latticeType();
         
         for (auto n : ncells) total_cells *= n;
-        // Account for MPI ranks: total_cells is global (from inputs), not per-rank
         // For MLUPS we report global lattice updates per second.
 
         const int max_step = params.maxStep();
         int warmup = std::min(10, max_step/10);
+        int save_checkpoint = 0;
+        std::string check_file = params.checkpointPrefix();
         {
             amrex::ParmParse ppbench("bench");
             ppbench.query("warmup", warmup);
+            ppbench.query("save_checkpoint", save_checkpoint);
+            ppbench.query("checkpoint", save_checkpoint);
+            ppbench.query("check_file", check_file);
+        }
+        {
+            amrex::ParmParse ppamr("amr");
+            ppamr.query("check_file", check_file);
         }
         const int bench_steps = max_step - warmup;
 
@@ -85,6 +94,15 @@ int main(int argc, char* argv[])
                        << " ms_per_step=" << ms_per_step
                        << " elapsed=" << elapsed
                        << "\n";
+
+        if (save_checkpoint) {
+            std::string cname = checkpointName(check_file, max_step);
+            amrex::Print() << "Saving final checkpoint: " << cname
+                           << " at step " << max_step << "\n";
+            writeCheckpoint(cname, sim->f(), sim->geom(), max_step, sim->time());
+            amrex::ParallelDescriptor::Barrier();
+            amrex::Print() << "Checkpoint done: " << cname << "\n";
+        }
     }
     amrex::Finalize();
     return 0;

@@ -93,6 +93,8 @@ def _run_batch_generate(args, dim: int, lattice: str):
             cmd += ["--steps", str(args.steps)]
         if args.flare_root:
             cmd += ["--flare-root", args.flare_root]
+        if args.save_checkpoint:
+            cmd += ["--save-checkpoint"]
         if args.outdir:
             cmd += ["--outdir", str(args.outdir)]
         if args.dry_run:
@@ -146,6 +148,7 @@ def main():
     parser.add_argument("--warmup", type=int, default=None, help="warmup steps (default per dim: 2D=100, 3D=50)")
     parser.add_argument("--steps", type=int, default=None, help="timed steps (default per dim: 2D=2000, 3D=500)")
     parser.add_argument("--flare-root", type=str, default=None, help="flare run root")
+    parser.add_argument("--save-checkpoint", action="store_true", default=False, help="save final checkpoint (chk<max_step>) — batch mode passes bench.save_checkpoint=1; local mode passes bench.save_checkpoint=1 override")
     parser.add_argument("--outdir", type=Path, default=None, help="output dir (default batch/generated/)")
     parser.add_argument("--dry-run", action="store_true", help="print what would be generated without writing (batch mode)")
     args = parser.parse_args()
@@ -178,6 +181,8 @@ def main():
             overrides = [f"grid.ncells={size} {size}", f"grid.max_grid_size={args.max_grid_size}", f"lbm.lattice_type={lattice}"]
         else:
             overrides = [f"grid.ncells={size} {size} {size}", f"grid.max_grid_size={args.max_grid_size}", f"lbm.lattice_type={lattice}"]
+        if args.save_checkpoint:
+            overrides.append("bench.save_checkpoint=1")
         solver_exe = find_bench_exe(bench_dir, dim, use_mpi=(nprocs > 1))
         run_dir = Path(f"scaling_{args.case}_{size}_{nodes}")
         log = run_bench(solver_exe, inputs, run_dir, overrides, nprocs=nprocs, ppn=args.ppn)
