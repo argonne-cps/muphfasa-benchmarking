@@ -1,41 +1,87 @@
-# TGV 3-D correctness check
+# TGV 3-D validation — Re=1600 vs. Dairay et al. 2017 DNS
 
-Minimal validation counterpart to `../inputs.bench` (perf-only): triply-periodic domain
-seeded with the classic 3-D TGV IC (`../Tgv3dAnalytic.H`, via `../InitData.cpp`).
+Triply-periodic 3-D Taylor-Green vortex (Taylor & Green 1937; Brachet et al. 1983)
+at **Re = 1600**, matching the DNS reference in `TGV_Re1600.dat` (data from
+Incompact3d 512³, domain (2π)³, doi:10.1016/j.jcp.2017.02.035 — see file header and the
+citation notice there). `validate` is the mirror of `../inputs.bench` (perf-only):
+same IC (`../Tgv3dAnalytic.H` via `../InitData.cpp`, one wavelength per domain) but
+run as a correctness/validation case rather than a timed benchmark.
 
-**Unlike `tgv2d`/`beltrami3d`, this isn't an `fcompare`-vs-analytic test.** The classic
-3-D TGV field has no closed-form solution for t>0 — vortex stretching moves energy into
-other Fourier modes (see the comment in `../Tgv3dAnalytic.H`) — so there's no analytic
-field to diff against. Instead `test_tgv3d.cpp` checks the **global kinetic-energy
-balance**, an identity that *is* exact for incompressible Navier-Stokes regardless of
-vortex stretching: nonlinear advection and pressure do no net work on a periodic,
-divergence-free field, so kinetic energy can only drop via viscous dissipation —
+## What is checked
 
-```
-KE(0) - KE(T) = nu * integral_0^T ( integral |curl(u)|^2 dV ) dt
-```
+Two complementary layers:
 
-At every `amr.plot_int` step it computes `KE(t) = (1/2) sum|u|^2` and
-`W(t) = sum|curl(u)|^2` (lattice units, central differences with periodic ghost fill),
-then at the end compares the measured energy drop `KE(0)-KE(T)` against
-`nu * trapz(W, t)`. Unlike the old pointwise/linearized-decay check, this holds at any
-Re/amplitude/duration — it's a genuine correctness check on the solver, not just on the
-IC wiring, and residual error comes only from the trapezoidal time integration and the
-solver's own truncation error.
+1. **In-situ energy balance** (`test_tgv3d.cpp`): the identity
+   `KE(0)-KE(T) = ∫ ε dt` (`ε = ν⟨|∇u|²⟩ = 2νℰ`) is exact for periodic
+   incompressible NS at any Re. The driver samples `E_k = ½⟨|u|²⟩`, `ε`, and
+   enstrophy `ℰ = ½⟨|ω|²⟩` at every `amr.plot_int` step (central differences,
+   periodic ghost fill, converted to physical units) and reports the balance
+   error plus a CSV. This holds regardless of vortex stretching.
+
+2. **DNS benchmark** (`analyze_tgv.py`): reads the AMReX plotfiles via `yt`
+   (or the in-situ `tgv_diagnostics.csv`) and compares `E_k(t)`, `ε(t)`,
+   `ℰ(t)` against `TGV_Re1600.dat` — L2 errors, peak dissipation magnitude
+   and timing, and overlay plots. This is the Re=1600 validation proper.
+
+## Inputs
+
+- `inputs` — default **N=512, Re=1600, t=20, u_lat=0.04** (matches the
+  512³ DNS). At N=512, `dt = u_lat·dx/U₀ = 0.04/512 ≈ 7.8e-5`, so `t=20`
+  needs ~256k steps; `amr.plot_int=2560` gives 100 outputs (Δt≈0.2). Full
+  run stores ~300 GB of plotfiles — increase `plot_int` if disk-limited;
+  the CSV is always written.
+- `inputs.small` — N=32, Re=100 smoke test (t=2, 800 steps) for local
+  sanity without HPC. Re=1600 at N=32 is unstable (`τ→0.5`) and
+  under-resolved; lower Re for small N or override on the CLI:
+  ```sh
+  ./test_tgv3d3d.gnu.ex inputs grid.ncells="64 64 64" grid.max_grid_size=64 \
+      units.Re=400 sim.max_step=5000 amr.plot_int=500
+  ```
+
+`sim.stop_time` (physical, `L/U` units) is honored when >0: the driver
+converts it to lattice steps via `UnitConverter::toLatticeTime`, so
+`sim.max_step` can be left as a cap. `lbm.u_lat` pins the lattice velocity
+(`Ma = u_lat/c_s`); `τ` is derived so `Re`/`N`/`u_lat` stay consistent.
 
 ## Build and run
+
 ```sh
-make                             # builds test_tgv3d3d.gnu.ex (DIM=3)
+make                               # builds test_tgv3d3d.gnu.ex (DIM=3)
 mkdir -p run && cd run
 ../test_tgv3d3d.gnu.ex ../inputs
+# or smoke test:
+../test_tgv3d3d.gnu.ex ../inputs.small
 ```
-Prints `KE`/`|curl(u)|^2` at each `amr.plot_int` step, then the final energy-balance
-relative error.
+
+Each `amr.plot_int` step prints `t  E_k  ε  ℰ`; at the end the energy-balance
+`rel_err` and the hint to run `analyze_tgv.py`. Plotfiles `plt*/` are in
+physical units; `tgv_diagnostics.csv` is written in `run/`.
+
+## Post-processing
+
+```sh
+# Activate the venv that has yt (per project instructions)
+source /home/biboyd/.venv/bin/activate
+
+# From plotfiles (yt path — reads plt*/ in run/):
+python3 ../analyze_tgv.py --run-dir run --benchmark ../TGV_Re1600.dat
+
+# From the in-situ CSV (no yt needed, faster):
+python3 ../analyze_tgv.py --csv run/tgv_diagnostics.csv --benchmark ../TGV_Re1600.dat
+
+# Save plots elsewhere / tune tolerances:
+python3 ../analyze_tgv.py --run-dir run --out-prefix ./tgv_compare --peak-eps-tol 0.20
+```
+
+Outputs `tgv_compare_Ek.png`, `*_dissipation.png`, `*_enstrophy.png`,
+`*_combined.png`, plus a console PASS/FAIL on peak-ε and KE-L2. Full
+comparison needs the run to reach t≈9 where dissipation peaks; shorter
+smoke runs will show truncated curves.
 
 ## Expected result
-~1% relative error between measured KE drop and `nu * integral(|curl(u)|^2) dt`
-(D3Q19/tau=0.8/N=32, `amr.plot_int=10` → 21 samples over 200 steps). This is purely
-trapezoidal-rule error from under-sampling the (rapidly decaying) `|curl(u)|^2` curve —
-not an approximation to the physics — so it shrinks with finer `amr.plot_int` (e.g.
-~9% at `plot_int=50`, ~1.5% at `plot_int=5`) and should hold at any Re/amplitude/run
-length, unlike the old linearized-decay check.
+
+- **Energy balance:** <10% `rel_err` (trapezoidal time integration; shrinks
+  with smaller `plot_int`).
+- **DNS comparison (N=512):** peak `ε≈0.0128` at `t≈9`; KE decay and
+  enstrophy within ~15–20% depending on resolution/compressibility. Coarser
+  N will deviate more — the diagnostic is for convergence, not a hard gate.

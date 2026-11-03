@@ -1,43 +1,61 @@
-# Correctness test: 3-D Taylor-Green vortex, global kinetic-energy balance.
-# Triply-periodic NxN^3 domain, one wavelength per side (see ../Tgv3dAnalytic.H).
-# ../InitData.cpp (one directory up, shared with bench) sets t=0 IC; test_tgv3d.cpp
-# checks KE(0)-KE(T) against nu*integral(|curl(u)|^2)dt over the run (see README.md).
+# Validation: 3-D Taylor-Green vortex at Re=1600 vs. Dairay et al. 2017 DNS (TGV_Re1600.dat).
+#
+# Triply-periodic NxNxN domain, one TGV wavelength per side (see ../Tgv3dAnalytic.H).
+# Initial condition (Taylor & Green 1937; Brachet et al. 1983):
+#   u =  U0 sin(kx) cos(ky) cos(kz)
+#   v = -U0 cos(kx) sin(ky) cos(kz)
+#   w =  0
+# with k = 2pi/L_domain (one wavelength per domain). DNS reference (Dairay et al.
+# 2017) uses domain (2pi)^3 with k=1, nondim L_ref=1, U0=1, Re=1600.
+# This setup uses L_domain = L_ref = 1 (k=2pi), which is the same physical
+# TGV up to a uniform length rescale: viscous time scales as 1/(nu*k^2), so
+# evolution is (2pi)^2 faster in these units. analyze_tgv.py accounts for
+# this when comparing to TGV_Re1600.dat (see --domain-scale).
+#
+# Default N=512 matches the reference 512^3 DNS (see TGV_Re1600.dat header).
+# For local smoke tests override on the command line, e.g.:
+#   ./test_tgv3d3d.gnu.ex inputs grid.ncells="32 32 32" grid.max_grid_size=32 \
+#       lbm.u_lat=0.08 units.Re=400 sim.max_step=1000 amr.plot_int=100
+# Note: Re=1600 at small N is unstable (tau -> 0.5); reduce Re for N<128.
 
 # ── Grid ──────────────────────────────────────────────────────────────────
-grid.ncells      = 32 32 32   # cubic: one wavelength per side
-grid.max_grid_size = 32
-grid.n_ghost     = 1
+grid.ncells       = 512 512 512   # cubic: one TGV wavelength per side
+grid.max_grid_size = 64           # chop into 64^3 boxes for MPI distribution
+grid.n_ghost      = 1
 
-# ── Simulation ───────────────────────────────────────────────────────────
-# The energy-balance check holds regardless of amplitude/duration, but the
-# trapezoidal time integration needs enough plot-step samples to be accurate
-# (KE decays fast here, so a coarse amr.plot_int under-samples it): plot_int=10
-# over 200 steps (~1% relative error) vs. plot_int=50 (~9%, still correct, just
-# a looser integration) -- see validate/README.md.
-sim.max_step     = 200
-sim.stop_time    = -1.0
+# ── Simulation ────────────────────────────────────────────────────────────
+# Benchmark time t=20 in L_ref/U0 units. With L_ref=1, U0=1, t_phys=20.
+# Lattice: dx=L_ref/N=1/512, dt=u_lat*dx/U0, steps = t_phys/dt.
+# At u_lat=0.05, dt=9.76e-5, steps=204800.
+sim.max_step     = 204800
+sim.stop_time    = 20.0
 
 # ── LBM ──────────────────────────────────────────────────────────────────
 lbm.lattice_type = D3Q19
-lbm.tau          = 0.8
+# Pin u_lat (lattice ref velocity). At Re=1600, tau=0.5+nu*u_lat/(U*dx*cs2)
+# with nu=1/1600, dx=1/512 => tau=0.5+0.9375*u_lat. u_lat=0.05 => tau=0.547.
+lbm.u_lat        = 0.05
 
-# ── Physical units ─────────────────────────────────────────────────────────
-# units.Re nonzero but irrelevant since tau pinned; ref_velocity is TGV amplitude
-# converted to lattice via UnitConverter::toLatticeVelocity().
-units.ref_length    = 32.0
-units.ref_velocity  = 0.01
-units.Re            = 1.0
+# ── Physical units ───────────────────────────────────────────────────────
+units.ref_length    = 1.0
+units.ref_velocity  = 1.0
+units.ref_density   = 1.0
+units.Re            = 1600.0
 
-# ── Boundary conditions ────────────────────────────────────────────────────
+# ── Boundary conditions ──────────────────────────────────────────────────
 bc.lo_type = Periodic  Periodic  Periodic
 bc.hi_type = Periodic  Periodic  Periodic
 
-# ── Geometry ───────────────────────────────────────────────────────────────
+# ── Geometry ─────────────────────────────────────────────────────────────
 geometry.prob_lo    = 0.0  0.0  0.0
 geometry.prob_hi    = 1.0  1.0  1.0
 
-# ── Output ─────────────────────────────────────────────────────────────────
-amr.plot_int        = 10
-amr.chk_int         = 201
+# ── Output ───────────────────────────────────────────────────────────────
+# Plotfiles contain density + velocity in physical units.
+# amr.plot_int sets both I/O and the in-situ diagnostic sampling cadence.
+# For N=512, 100 plotfiles are ~300 GB; increase plot_int if disk-limited.
+# The in-situ CSV (tgv_diagnostics.csv) is tiny and always written.
+amr.plot_int        = 2048
+amr.chk_int         = 100000
 amr.plot_file       = plt
 amr.check_file      = chk
