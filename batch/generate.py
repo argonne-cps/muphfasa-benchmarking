@@ -153,7 +153,7 @@ COMPILING_BLOCK = """
 echo "=== COMPILING $CASE (DIM=$DIM) ==="
 if [ -d "benchmarks/$CASE" ]; then
   make -C benchmarks/$CASE $BUILD_OPTS clean || true
-  make -C benchmarks/$CASE -j4 $BUILD_OPTS
+  make -C benchmarks/$CASE -j6 $BUILD_OPTS
   BENCH_EXE_NAME=$(make -C benchmarks/$CASE $BUILD_OPTS print-executable 2>/dev/null | sed -n 's/^executable is \\(.*\\)$/\\1/p')
   echo "Built benchmarks/$CASE/$BENCH_EXE_NAME"
 else
@@ -165,7 +165,7 @@ echo "Compile stage done."
 
 VALIDATE_COMPILE_SNIPPET = """if [ -d "{validate_dir}" ]; then
   make -C {validate_dir} DIM=$DIM USE_MPI=TRUE USE_SYCL=TRUE COMP=intel clean 2>/dev/null || make -C {validate_dir} DIM=$DIM clean 2>/dev/null || true
-  make -C {validate_dir} -j4 DIM=$DIM USE_MPI=TRUE USE_SYCL=TRUE COMP=intel || make -C {validate_dir} -j4 DIM=$DIM
+  make -C {validate_dir} -j6 DIM=$DIM USE_MPI=TRUE USE_SYCL=TRUE COMP=intel || make -C {validate_dir} -j6 DIM=$DIM
   echo "Built {validate_dir}/test_*.ex"
 fi"""
 
@@ -231,7 +231,7 @@ echo "Resolved bench exe: $BENCH_EXE (from make print-executable)"
 # Fallback build if compiling stage was not included and exe is missing
 if [ ! -x "$BENCH_EXE" ]; then
   echo "bench exe $BENCH_EXE not found — building on compute node (prefer compiling stage)"
-  make -C benchmarks/$CASE -j4 $BUILD_OPTS
+  make -C benchmarks/$CASE -j6 $BUILD_OPTS
 fi
 if [ ! -x "$BENCH_EXE" ]; then echo "ERROR: bench exe $BENCH_EXE missing after build; found:"; ls -l benchmarks/$CASE/*.ex 2>&1 || echo "(no *.ex in benchmarks/$CASE)"; exit 1; fi
 INPUTS="benchmarks/$CASE/inputs.bench"
