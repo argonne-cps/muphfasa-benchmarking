@@ -18,26 +18,19 @@ sim.stop_time    = -1.0
 
 # ── LBM ──────────────────────────────────────────────────────────────────
 lbm.lattice_type = D2Q9
-lbm.tau          = 0.692  # Re=100, U_lat=0.1, N=64 -> tau~0.692 (override for Re sweep)
+lbm.tau = 0.8 # Re=1000, U_lat=0.1, N=1024  
 
 # ── Physical units ─────────────────────────────────────────────────────────
-# With lbm.tau pinned, UnitConverter derives u_lat = nu_lat*Re/N (nu_lat =
-# (tau-0.5)*cs2 = 0.064 here), so u_lat depends on the grid size actually run:
-# 0.1 at N=64, 0.0063 at N=1024. Keep N >= ~43, below which u_lat passes the
-# 0.15 soft warning, and N >= 22, below which it hits the u_lat<0.3 hard assert
-# (e.g. a run_scaling.py sweep that goes below the default 64^2).
-# ref_velocity is the physical lid speed; bc.hiy_Uwall below is converted to
-# lattice units via UnitConverter::toLatticeVelocity(), so keep the two equal.
-units.ref_length    = 1.0
-units.ref_velocity  = 0.05
+# With lbm.tau pinned, lbm.u_lat becomes is reasonably low for N>1024
+units.ref_velocity  = 1.0
 units.ref_density   = 1.0
-units.Re            = 100.0
+units.Re            = 1000.0
 
 # ── Boundary conditions ────────────────────────────────────────────────────
 # All four walls closed: x walls and bottom NoSlip, top (y=hi) MovingWall lid.
 bc.lo_type = NoSlip  NoSlip
 bc.hi_type = NoSlip  MovingWall
-bc.hiy_Uwall = 0.05  0.0   # (vx, vy), physical units
+bc.hiy_Uwall = 1.0  0.0   # (vx, vy), physical units
 
 # ── Geometry ───────────────────────────────────────────────────────────────
 geometry.prob_lo    = 0.0  0.0
