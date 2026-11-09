@@ -32,6 +32,8 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import yt 
+import unyt
 
 DEFAULT_TOL_PEAK_EPS = 0.20   # 20% error on peak dissipation admitted at coarse N
 DEFAULT_TOL_KE_L2 = 0.10
@@ -82,13 +84,89 @@ def load_sim_csv(path: Path):
 # yt-based diagnostics (from plotfiles)
 # ---------------------------------------------------------------------------
 
-def _yt_available() -> bool:
-    try:
-        import yt  # noqa: F401
-        return True
-    except ImportError:
-        return False
+# ---------------------------------------------------------------------------
+# yt fields
+# ---------------------------------------------------------------------------
 
+def _ke(field, data):
+    return 0.5 * (data['boxlib', 'vx'] + data['boxlib', 'vy'] + data['boxlib', 'vz']) * unyt.m/unyt.s
+
+def _vorticity_x(field, data):
+    dvz_dy = data["boxlib", "vz_gradient_y"] * unyt.cm/unyt.s
+    dvy_dz = data["boxlib", "vy_gradient_z"] * unyt.cm/unyt.s
+    vort = dvz_dy - dvy_dz
+
+    return vort
+
+def _vorticity_y(field, data):
+    dvx_dz = data["boxlib", "vx_gradient_z"] * unyt.cm/unyt.s
+    dvz_dx = data["boxlib", "vz_gradient_x"] * unyt.cm/unyt.s
+    vort = dvx_dz - dvz_dx
+
+    return vort
+
+def _vorticity_z(field, data):
+    dvy_dx = data["boxlib", "vy_gradient_x"] * unyt.cm/unyt.s
+    dvx_dy = data["boxlib", "vx_gradient_y"]* unyt.cm/unyt.s
+    vort = dvy_dx - dvx_dy
+
+    return vort
+
+def _vorticity_magnitude(field, data):
+    vort_x = data["boxlib", "vorticity_x"] * unyt.cm/unyt.s
+    vort_y = data["boxlib", "vorticity_y"] * unyt.cm/unyt.s
+    vort_z = data["boxlib", "vorticity_z"] * unyt.cm/unyt.s
+
+    return np.sqrt(vort_x**2 + vort_y**2 + vort_z**2)
+
+def _enstrophy(field, data):
+    return 0.5 * data["boxlib", "vorticity"]**2
+
+def _grad_squared_vel(field, data):
+    du_dx = data["boxlib", "vx_gradient_x"] * unyt.cm/unyt.s
+    du_dy = data["boxlib", "vx_gradient_y"] * unyt.cm/unyt.s
+    du_dz = data["boxlib", "vx_gradient_z"] * unyt.cm/unyt.s
+
+    dv_dx = data["boxlib", "vy_gradient_x"] * unyt.cm/unyt.s
+    dv_dy = data["boxlib", "vy_gradient_y"] * unyt.cm/unyt.s
+    dv_dz = data["boxlib", "vy_gradient_z"] * unyt.cm/unyt.s
+
+    dw_dx = data["boxlib", "vz_gradient_x"] * unyt.cm/unyt.s
+    dw_dy = data["boxlib", "vz_gradient_y"] * unyt.cm/unyt.s
+    dw_dz = data["boxlib", "vz_gradient_z"] * unyt.cm/unyt.s
+
+    g2 = du_dx**2 + du_dy**2 + du_dz**2 + \
+         dv_dx**2 + dv_dy**2 + dv_dz**2 + \
+         dw_dx**2 + dw_dy**2 + dw_dz**2
+    return g2
+
+def setup_vorticity(ds):
+    """Register gradient + vorticity fields on *ds* (idempotent)."""
+    if ("boxlib", "vorticity") in ds.derived_field_list:
+        return
+    # create vx_gradient_{x,y,z} and vy_gradient_{x,y,z}
+    # (yt handles AMR level boundaries / ghost zones internally)
+    ds.add_gradient_fields(("boxlib", "vx"))
+    ds.add_gradient_fields(("boxlib", "vy"))
+    ds.add_gradient_fields(("boxlib", "vz"))
+
+def add_new_fields(ds):
+    """Add derived fields to *ds* ."""
+    setup_vorticity(ds)
+    if ("boxlib", "KE") not in ds.derived_field_list:
+        ds.add_field(("boxlib", "KE"), function=_ke, units="cm**2/s**2", sampling_type='local')
+    if ("boxlib", "vorticity_x") not in ds.derived_field_list:
+        ds.add_field(("boxlib", "vorticity_x"), function=_vorticity_x, units="1/s", sampling_type='local')
+    if ("boxlib", "vorticity_y") not in ds.derived_field_list:
+        ds.add_field(("boxlib", "vorticity_y"), function=_vorticity_y, units="1/s", sampling_type='local')
+    if ("boxlib", "vorticity_z") not in ds.derived_field_list:
+        ds.add_field(("boxlib", "vorticity_z"), function=_vorticity_z, units="1/s", sampling_type='local')
+    if ("boxlib", "vorticity") not in ds.derived_field_list:
+        ds.add_field(("boxlib", "vorticity"), function=_vorticity_magnitude, units="1/s", sampling_type='local')
+    if ("boxlib", "enstrophy") not in ds.derived_field_list:
+        ds.add_field(("boxlib", "enstrophy"), function=_enstrophy, units="1/s**2", sampling_type='local')
+    if ("boxlib", "grad_squared_vel") not in ds.derived_field_list:
+        ds.add_field(("boxlib", "grad_squared_vel"), function=_grad_squared_vel, units="1/s**2", sampling_type='local')
 
 def compute_yt_diagnostics(pltdirs: list[Path], nu_phys: float = 1.0 / 1600.0,
                            L_ref: float = 6.283185307179586, U0: float = 1.0):
@@ -99,13 +177,16 @@ def compute_yt_diagnostics(pltdirs: list[Path], nu_phys: float = 1.0 / 1600.0,
     If L_ref != 1 the time/eps/enstrophy are converted to benchmark
     nondim (t_bench=t_phys*U0/L_ref, etc.) to match TGV_Re1600.dat.
     """
-    import yt
     yt.set_log_level(40)
 
     results = {"t": [], "Ek": [], "eps": [], "enstrophy": []}
 
     for pdir in pltdirs:
         ds = yt.load(str(pdir))
+        setup_vorticity(ds)
+        add_new_fields(ds)
+
+        # add fields
         # physical domain and cell size
         dims = np.array(ds.domain_dimensions, dtype=float)
         left = np.array(ds.domain_left_edge, dtype=float)
@@ -114,76 +195,25 @@ def compute_yt_diagnostics(pltdirs: list[Path], nu_phys: float = 1.0 / 1600.0,
         dx = float(L[0] / dims[0])
         t = float(ds.current_time)
 
-        cg = ds.covering_grid(level=0, left_edge=ds.domain_left_edge, dims=ds.domain_dimensions)
-        # AMReX plotfile vars: density, vx, vy, vz in physical units
-        # yt frontend exposes them as ("boxlib", var); covering_grid returns with ghost handling
-        try:
-            u = np.asarray(cg["boxlib", "vx"])
-            v = np.asarray(cg["boxlib", "vy"])
-            w = np.asarray(cg["boxlib", "vz"])
-        except Exception:
-            # fallback: try "stream" or bare name
-            u = np.asarray(cg["vx"])
-            v = np.asarray(cg["vy"])
-            w = np.asarray(cg["vz"])
+        # mean KE
+        ke = ds.all_data().mean('KE')
 
-        # yt covering_grid may return shape (nx, ny, nz) with Fortran order;
-        # squeeze any extra dims and ensure 3-D
-        # AMReX ordering is (z,y,x) or (x,y,z) depending; yt doc says (x,y,z) with cg.
-        # We treat axis 0 as x for gradient purposes consistently using np.roll.
-        # Verify shape matches dims
-        # If 4-D (with component), squeeze; if 2-D slice, skip
-        # Normal case: shape == (nx, ny, nz) or (nx, ny, nz, 1)
-        # For safety, just work with numpy arrays regardless of axis labels —
-        # periodic central diff is symmetric, and isotropic averaging is invariant.
-
-        # Ensure 3-D
-        if u.ndim == 4:
-            u = u[:, :, :, 0]
-            v = v[:, :, :, 0]
-            w = w[:, :, :, 0]
-        # covering_grid pads one level: dims may be off by 1; trim if needed
-        # Use actual array shape for N
-        n_cells = u.size
-
-        # KE: 0.5 * mean(u^2+v^2+w^2)
-        ke = 0.5 * float(np.mean(u**2 + v**2 + w**2))
-
-        # Gradients: 9 components, central diff, periodic, physical dx
-        # Determine axis order: yt covering_grid returns array indexed [x, y, z]
-        # (consistent with AMReX Box ordering). We assume axis 0=x, 1=y, 2=z.
-        inv_2dx = 1.0 / (2.0 * dx)
-
-        def grad(field, axis):
-            return (np.roll(field, -1, axis=axis) - np.roll(field, 1, axis=axis)) * inv_2dx
-
-        dudx = grad(u, 0); dudy = grad(u, 1); dudz = grad(u, 2)
-        dvdx = grad(v, 0); dvdy = grad(v, 1); dvdz = grad(v, 2)
-        dwdx = grad(w, 0); dwdy = grad(w, 1); dwdz = grad(w, 2)
-
-        g2_mean = float(np.mean(
-            dudx**2 + dudy**2 + dudz**2 +
-            dvdx**2 + dvdy**2 + dvdz**2 +
-            dwdx**2 + dwdy**2 + dwdz**2
-        ))
-        eps = nu_phys * g2_mean
+        eps = nu_phys * ds.all_data().mean('grad_squared_vel')
 
         # vorticity and enstrophy
-        wx = dwdy - dvdz
-        wy = dudz - dwdx
-        wz = dvdx - dudy
-        enst = 0.5 * float(np.mean(wx**2 + wy**2 + wz**2))
+        enst = ds.all_data().mean('enstrophy')
 
         # Convert physical -> benchmark nondim if L_ref != 1
-        t_bench = t * U0 / L_ref if L_ref != 1.0 else t
-        ke_bench = ke / (U0 * U0) if U0 != 1.0 else ke
-        eps_bench = eps * L_ref / (U0 ** 3) if L_ref != 1.0 else eps
-        enst_bench = enst * L_ref * L_ref / (U0 * U0) if L_ref != 1.0 else enst
+        if L_ref != 1.0 or U0 != 1.0:
+            t *= U0 / L_ref
+            ke /= (U0 * U0)
+            eps *= L_ref / (U0 ** 3)
+            enst *= L_ref * L_ref / (U0 * U0)
 
-        results["t"].append(t_bench)
-        results["Ek"].append(ke_bench)
-        results["eps"].append(eps_bench)
-        results["enstrophy"].append(enst_bench)
+        results["t"].append(t)
+        results["Ek"].append(ke)
+        results["eps"].append(eps)
+        results["enstrophy"].append(enst)
 
     for k in results:
         results[k] = np.array(results[k])
@@ -199,7 +229,6 @@ def find_plotfiles(run_dir: Path):
         (p for p in run_dir.glob("plt*") if re.fullmatch(r"plt\d+", p.name)),
         key=lambda p: int(p.name[3:]),
     )
-
 
 # ---------------------------------------------------------------------------
 # Comparison / plotting
