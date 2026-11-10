@@ -59,3 +59,5 @@ amr.plot_int        = 2048
 amr.chk_int         = 100000
 amr.plot_file       = plt
 amr.check_file      = chk
+
+bench.sample_int = 50

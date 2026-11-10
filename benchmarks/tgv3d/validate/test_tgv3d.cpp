@@ -136,6 +136,10 @@ int main(int argc, char* argv[])
         }
 
         int plot_int = params.plotInterval();
+        int sample_int=-1; 
+        amrex::ParmParse ppbench("bench");
+        ppbench.query("sample_int", sample_int);
+
         if (plot_int <= 0) plot_int = max_step;
 
         amrex::Print() << "TGV Re=1600 validation: N=" << params.ncells()[0]
@@ -187,7 +191,7 @@ int main(int argc, char* argv[])
             sim->writeOutput(step);
 
             // Sample at plot interval (avoid duplicating the t=0 sample)
-            if (step > 0 && (step % plot_int == 0)) {
+            if (step > 0 && (step % sample_int == 0)) {
                 doSample(step);
             }
             if (stop_time_phys > 0.0 && units.toPhysicalTime(sim->time()) >= stop_time_phys) {
