@@ -25,18 +25,19 @@ Two complementary layers:
 
 ## Inputs
 
-- `inputs` — default **N=512, Re=1600, t=20, u_lat=0.04** (matches the
-  512³ DNS). At N=512, `dt = u_lat·dx/U₀ = 0.04/512 ≈ 7.8e-5`, so `t=20`
-  needs ~256k steps; `amr.plot_int=2560` gives 100 outputs (Δt≈0.2). Full
-  run stores ~300 GB of plotfiles — increase `plot_int` if disk-limited;
-  the CSV is always written.
-- `inputs.small` — N=32, Re=100 smoke test (t=2, 800 steps) for local
-  sanity without HPC. Re=1600 at N=32 is unstable (`τ→0.5`) and
-  under-resolved; lower Re for small N or override on the CLI:
-  ```sh
-  ./test_tgv3d3d.gnu.ex inputs grid.ncells="64 64 64" grid.max_grid_size=64 \
-      units.Re=400 sim.max_step=5000 amr.plot_int=500
-  ```
+- `inputs` — default **N=512, Re=1600, t=20, u_lat=0.1** (matches the
+  512³ DNS). Runs in the benchmark's own units: domain `[0,2π]³`,
+  `units.ref_length=2π`, `U₀=1`, `ν=1/1600`, so results compare 1:1 with
+  `TGV_Re1600.dat` (t=0: `E_k=0.125`, `⟨(∂u/∂x)²⟩=0.125`). Note
+  `units.Re = U₀·ref_length/ν = 2π·1600` (muphfasa's Re is built on
+  `ref_length`). At N=512 `dx=2π/512`, `dt=u_lat·dx/U₀≈1.23e-3`, `τ≈0.515`,
+  so `t=20` takes ~16.3k steps; `amr.plot_int=163` gives ~100 outputs
+  (Δt≈0.2, ~300 GB — increase if disk-limited). `bench.sample_int` sets the
+  in-situ CSV cadence (defaults to `plot_int`).
+- `inputs.small` — N=64, Re_bench=100 smoke test (t=2, ~200 steps) for local
+  sanity without HPC (`units.Re = 2π·100`). Energy-balance error is numerical
+  dissipation of the coarse LBM grid: ~19% (N=32), ~7% (N=64), ~3% (N=128).
+  Re=1600 at small N is unstable (`τ→0.5`); lower Re for small N.
 
 `sim.stop_time` (physical, `L/U` units) is honored when >0: the driver
 converts it to lattice steps via `UnitConverter::toLatticeTime`, so

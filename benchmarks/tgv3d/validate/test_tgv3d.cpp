@@ -11,10 +11,11 @@
 //     AMReX plotfiles via yt. This driver writes the plotfiles and an in-situ
 //     CSV (tgv_diagnostics.csv) with the same quantities for cross-check.
 //
-// Physical units: L_ref=1 (one wavelength = domain length), U0=1, Re=1600
-// => nu=6.25e-4. Domain [0,1]^3 (equivalent to benchmark (2pi)^3 up to L scale).
-// Time t=20 in L/U units (benchmark range). The inputs file pins lbm.u_lat
-// so tau is derived consistently; see inputs for the dt/step budget.
+// Units: run directly in the DNS benchmark units: domain [0,2pi]^3 (= units.ref_length),
+// U0=1, nu=1/1600 (k=1, so t=0 has Ek=0.125 and <(du/dx)^2>=0.125). Because
+// units.Re = U0*ref_length/nu, the input value is 2pi*1600, not 1600. The
+// inputs file pins lbm.u_lat so tau is derived consistently; see inputs for
+// the dt/step budget. Output columns are physical == benchmark units.
 
 #include "IO/InputParser.H"
 #include "Simulation/ISimulation.H"
@@ -46,30 +47,32 @@ struct Diagnostics {
 void computeDiagnostics(const amrex::MultiFab& vel_lat, const amrex::Geometry& geom,
                         const UnitConverter& units, Diagnostics& d)
 {
-    const amrex::Real C_vel = units.dx() / units.dt(); // u_phys = u_lat * C_vel
-    const amrex::Real C_vel2 = C_vel * C_vel;
     const amrex::Real dx_phys = units.dx();
+    const amrex::Real dt_phys = units.dt();
     const amrex::Real nu_lat = (units.relaxationTime() - amrex::Real(0.5)) * tgv3d::kCs2;
     const amrex::Real nu_phys = units.toPhysicalViscosity(nu_lat);
-
-    const long n_cells = vel_lat.boxArray().numPts();
-    const amrex::Real inv_n = amrex::Real(1.0) / amrex::Real(n_cells);
+    const amrex::Real ncell = static_cast<amrex::Real>(vel_lat.boxArray().numPts());
 
     amrex::Real ke_lat_sum = amrex::Real(0.5) * amrex::MultiFab::Dot(vel_lat, 0, vel_lat.nComp(), 0);
-    d.ke = ke_lat_sum * inv_n * C_vel2;
+    d.ke = ke_lat_sum * (dx_phys*dx_phys)/(dt_phys*dt_phys)/ncell;
 
     amrex::MultiFab vel_g(vel_lat.boxArray(), vel_lat.DistributionMap(), vel_lat.nComp(), 1);
     amrex::MultiFab::Copy(vel_g, vel_lat, 0, 0, vel_lat.nComp(), 0);
+
+    // tgv all bounds are periodic
     vel_g.FillBoundary(geom.periodicity());
 
     amrex::MultiFab grad_sq(vel_lat.boxArray(), vel_lat.DistributionMap(), 1, 0);
     amrex::MultiFab vort_sq(vel_lat.boxArray(), vel_lat.DistributionMap(), 1, 0);
+    amrex::MultiFab dudx_sq(vel_lat.boxArray(), vel_lat.DistributionMap(), 1, 0);
 
     for (amrex::MFIter mfi(vel_g); mfi.isValid(); ++mfi) {
         const amrex::Box& bx = mfi.validbox();
         amrex::Array4<amrex::Real const> const& u = vel_g.const_array(mfi);
         amrex::Array4<amrex::Real> const& g2 = grad_sq.array(mfi);
         amrex::Array4<amrex::Real> const& v2 = vort_sq.array(mfi);
+        amrex::Array4<amrex::Real> const& dudx2 = dudx_sq.array(mfi);
+
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
             const amrex::Real h = amrex::Real(0.5);
             const amrex::Real dudx = h * (u(i+1,j,k,0) - u(i-1,j,k,0));
@@ -86,6 +89,8 @@ void computeDiagnostics(const amrex::MultiFab& vel_lat, const amrex::Geometry& g
                       + dvdx*dvdx + dvdy*dvdy + dvdz*dvdz
                       + dwdx*dwdx + dwdy*dwdy + dwdz*dwdz;
 
+            dudx2(i,j,k) = dudx*dudx;
+
             const amrex::Real wx = dwdy - dvdz;
             const amrex::Real wy = dudz - dwdx;
             const amrex::Real wz = dvdx - dudy;
@@ -93,17 +98,18 @@ void computeDiagnostics(const amrex::MultiFab& vel_lat, const amrex::Geometry& g
         });
     }
 
-    // grad_phys = grad_lat / dt  (since grad_phys = grad_lat*C_vel/dx_phys = grad_lat/dt)
-    // vort_phys = vort_lat / dt
-    const amrex::Real dt = units.dt();
-    const amrex::Real inv_dt2 = amrex::Real(1.0) / (dt * dt);
+    const amrex::Real inv_dt2 = amrex::Real(1.0) / (dt_phys * dt_phys);
     amrex::Real g2_sum = grad_sq.sum(0);
     amrex::Real v2_sum = vort_sq.sum(0);
+    amrex::Real dudx2_sum = dudx_sq.sum(0);
 
-    amrex::Real g2_phys_mean = g2_sum * inv_n * inv_dt2;
-    amrex::Real v2_phys_mean = v2_sum * inv_n * inv_dt2;
+    amrex::Real g2_phys_mean = g2_sum * inv_dt2/ncell;
+    amrex::Real v2_phys_mean = v2_sum * inv_dt2/ncell;
+    amrex::Real dudx2_phys_mean = dudx2_sum * inv_dt2/ncell;
 
     d.dissipation = nu_phys * g2_phys_mean;
+    amrex::Print() << "ncells=" << ncell << " nu=" << nu_phys << " dt=" << dt_phys
+    << " ke=" << d.ke << " g2=" << g2_phys_mean << " dudx2=" << dudx2_phys_mean << std::endl;
     d.enstrophy = amrex::Real(0.5) * v2_phys_mean;
 }
 
@@ -136,7 +142,12 @@ int main(int argc, char* argv[])
         }
 
         int plot_int = params.plotInterval();
+        int sample_int=-1; 
+        amrex::ParmParse ppbench("bench");
+        ppbench.query("sample_int", sample_int);
+
         if (plot_int <= 0) plot_int = max_step;
+        if (sample_int <= 0) sample_int = plot_int;
 
         amrex::Print() << "TGV Re=1600 validation: N=" << params.ncells()[0]
                        << " Re=" << params.reynoldsNumber()
@@ -153,23 +164,24 @@ int main(int argc, char* argv[])
         std::vector<Diagnostics> hist;
         hist.reserve(max_step / std::max(1, plot_int) + 2);
 
-        const amrex::Real L_ref = params.refLength();
-        const amrex::Real U0 = params.refVelocity();
-
         std::ofstream csv("tgv_diagnostics.csv", std::ios::out);
         csv << "step,time_phys,time,Ek,dissipation,enstrophy\n";
 
-        auto doSample = [&](int step) {
-            sim->updateMacroscopic();
+        auto doSample = [&](int step, bool refresh_macro = true) {
+            // updateMacroscopic() streams m_fin first, so at t=0 it would return a
+            // lattice-smoothed IC; the t=0 sample reads m_vel as set by initData.
+            if (refresh_macro) sim->updateMacroscopic();
             Diagnostics d;
             d.step = step;
             d.time_phys = units.toPhysicalTime(sim->time());
             computeDiagnostics(sim->vel(), geom, units, d);
             hist.push_back(d);
-            const amrex::Real t_bench = d.time_phys * U0 / L_ref;
-            const amrex::Real ek_bench = d.ke / (U0 * U0);
-            const amrex::Real eps_bench = d.dissipation * L_ref / (U0 * U0 * U0);
-            const amrex::Real enst_bench = d.enstrophy * L_ref * L_ref / (U0 * U0);
+
+            const amrex::Real t_bench = d.time_phys;
+            const amrex::Real ek_bench = d.ke;
+            const amrex::Real eps_bench = d.dissipation;
+            const amrex::Real enst_bench = d.enstrophy;
+
             amrex::Print() << "sample step=" << step << " t_phys=" << d.time_phys
                            << " t_bench=" << t_bench
                            << " Ek=" << d.ke << " eps=" << d.dissipation
@@ -180,14 +192,14 @@ int main(int argc, char* argv[])
         };
 
         // Initial sample at t=0 before any advance
-        doSample(0);
+        doSample(0, false);
 
         for (int step = 0; step <= max_step; ++step) {
             sim->advanceFused(step);
             sim->writeOutput(step);
 
             // Sample at plot interval (avoid duplicating the t=0 sample)
-            if (step > 0 && (step % plot_int == 0)) {
+            if (step > 0 && (step % sample_int == 0)) {
                 doSample(step);
             }
             if (stop_time_phys > 0.0 && units.toPhysicalTime(sim->time()) >= stop_time_phys) {
