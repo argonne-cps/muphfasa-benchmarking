@@ -89,33 +89,35 @@ def load_sim_csv(path: Path):
 # ---------------------------------------------------------------------------
 
 def _ke(field, data):
-    return 0.5 * (data['boxlib', 'vx'] + data['boxlib', 'vy'] + data['boxlib', 'vz']) * unyt.m/unyt.s
+    return 0.5 * (data['boxlib', 'vx']*data['boxlib', 'vx'] + 
+                  data['boxlib', 'vy']*data['boxlib', 'vy'] + 
+                  data['boxlib', 'vz']*data['boxlib', 'vz']) * unyt.m**2/unyt.s**2
 
 def _vorticity_x(field, data):
-    dvz_dy = data["boxlib", "vz_gradient_y"] * unyt.cm/unyt.s
-    dvy_dz = data["boxlib", "vy_gradient_z"] * unyt.cm/unyt.s
+    dvz_dy = data["boxlib", "vz_gradient_y"] * unyt.m / unyt.s
+    dvy_dz = data["boxlib", "vy_gradient_z"] * unyt.m / unyt.s
     vort = dvz_dy - dvy_dz
 
     return vort
 
 def _vorticity_y(field, data):
-    dvx_dz = data["boxlib", "vx_gradient_z"] * unyt.cm/unyt.s
-    dvz_dx = data["boxlib", "vz_gradient_x"] * unyt.cm/unyt.s
+    dvx_dz = data["boxlib", "vx_gradient_z"] * unyt.m / unyt.s
+    dvz_dx = data["boxlib", "vz_gradient_x"] * unyt.m / unyt.s
     vort = dvx_dz - dvz_dx
 
     return vort
 
 def _vorticity_z(field, data):
-    dvy_dx = data["boxlib", "vy_gradient_x"] * unyt.cm/unyt.s
-    dvx_dy = data["boxlib", "vx_gradient_y"]* unyt.cm/unyt.s
+    dvy_dx = data["boxlib", "vy_gradient_x"] * unyt.m / unyt.s
+    dvx_dy = data["boxlib", "vx_gradient_y"] * unyt.m / unyt.s
     vort = dvy_dx - dvx_dy
 
     return vort
 
 def _vorticity_magnitude(field, data):
-    vort_x = data["boxlib", "vorticity_x"] * unyt.cm/unyt.s
-    vort_y = data["boxlib", "vorticity_y"] * unyt.cm/unyt.s
-    vort_z = data["boxlib", "vorticity_z"] * unyt.cm/unyt.s
+    vort_x = data["boxlib", "vorticity_x"] 
+    vort_y = data["boxlib", "vorticity_y"] 
+    vort_z = data["boxlib", "vorticity_z"] 
 
     return np.sqrt(vort_x**2 + vort_y**2 + vort_z**2)
 
@@ -123,38 +125,39 @@ def _enstrophy(field, data):
     return 0.5 * data["boxlib", "vorticity"]**2
 
 def _grad_squared_vel(field, data):
-    du_dx = data["boxlib", "vx_gradient_x"] * unyt.cm/unyt.s
-    du_dy = data["boxlib", "vx_gradient_y"] * unyt.cm/unyt.s
-    du_dz = data["boxlib", "vx_gradient_z"] * unyt.cm/unyt.s
+    du_dx = data["boxlib", "vx_gradient_x"] * unyt.m / unyt.s
+    du_dy = data["boxlib", "vx_gradient_y"] * unyt.m / unyt.s
+    du_dz = data["boxlib", "vx_gradient_z"] * unyt.m / unyt.s
 
-    dv_dx = data["boxlib", "vy_gradient_x"] * unyt.cm/unyt.s
-    dv_dy = data["boxlib", "vy_gradient_y"] * unyt.cm/unyt.s
-    dv_dz = data["boxlib", "vy_gradient_z"] * unyt.cm/unyt.s
+    dv_dx = data["boxlib", "vy_gradient_x"] * unyt.m / unyt.s
+    dv_dy = data["boxlib", "vy_gradient_y"] * unyt.m / unyt.s
+    dv_dz = data["boxlib", "vy_gradient_z"] * unyt.m / unyt.s
 
-    dw_dx = data["boxlib", "vz_gradient_x"] * unyt.cm/unyt.s
-    dw_dy = data["boxlib", "vz_gradient_y"] * unyt.cm/unyt.s
-    dw_dz = data["boxlib", "vz_gradient_z"] * unyt.cm/unyt.s
+    dw_dx = data["boxlib", "vz_gradient_x"] * unyt.m / unyt.s
+    dw_dy = data["boxlib", "vz_gradient_y"] * unyt.m / unyt.s
+    dw_dz = data["boxlib", "vz_gradient_z"] * unyt.m / unyt.s
 
     g2 = du_dx**2 + du_dy**2 + du_dz**2 + \
          dv_dx**2 + dv_dy**2 + dv_dz**2 + \
          dw_dx**2 + dw_dy**2 + dw_dz**2
     return g2
 
-def setup_vorticity(ds):
+def setup_vel_gradients(ds):
     """Register gradient + vorticity fields on *ds* (idempotent)."""
     if ("boxlib", "vorticity") in ds.derived_field_list:
         return
     # create vx_gradient_{x,y,z} and vy_gradient_{x,y,z}
     # (yt handles AMR level boundaries / ghost zones internally)
+    ds.force_periodicity()
     ds.add_gradient_fields(("boxlib", "vx"))
     ds.add_gradient_fields(("boxlib", "vy"))
     ds.add_gradient_fields(("boxlib", "vz"))
 
 def add_new_fields(ds):
     """Add derived fields to *ds* ."""
-    setup_vorticity(ds)
+    setup_vel_gradients(ds)
     if ("boxlib", "KE") not in ds.derived_field_list:
-        ds.add_field(("boxlib", "KE"), function=_ke, units="cm**2/s**2", sampling_type='local')
+        ds.add_field(("boxlib", "KE"), function=_ke, units="m**2/s**2", sampling_type='local')
     if ("boxlib", "vorticity_x") not in ds.derived_field_list:
         ds.add_field(("boxlib", "vorticity_x"), function=_vorticity_x, units="1/s", sampling_type='local')
     if ("boxlib", "vorticity_y") not in ds.derived_field_list:
@@ -179,11 +182,15 @@ def compute_yt_diagnostics(pltdirs: list[Path], nu_phys: float = 1.0 / 1600.0,
     """
     yt.set_log_level(40)
 
-    results = {"t": [], "Ek": [], "eps": [], "enstrophy": []}
+    n_plts = len(pltdirs)
+    results = {"t": np.empty(n_plts), 
+               "Ek": np.empty(n_plts),
+               "eps": np.empty(n_plts), 
+               "enstrophy": np.empty(n_plts)}
 
-    for pdir in pltdirs:
-        ds = yt.load(str(pdir))
-        setup_vorticity(ds)
+    for i, pdir in enumerate(pltdirs):
+        ds = load_dataset(pdir)
+        setup_vel_gradients(ds)
         add_new_fields(ds)
 
         # add fields
@@ -210,13 +217,11 @@ def compute_yt_diagnostics(pltdirs: list[Path], nu_phys: float = 1.0 / 1600.0,
             eps *= L_ref / (U0 ** 3)
             enst *= L_ref * L_ref / (U0 * U0)
 
-        results["t"].append(t)
-        results["Ek"].append(ke)
-        results["eps"].append(eps)
-        results["enstrophy"].append(enst)
+        results["t"][i] = t
+        results["Ek"][i] = ke
+        results["eps"][i] = eps
+        results["enstrophy"][i] = enst
 
-    for k in results:
-        results[k] = np.array(results[k])
     # sort by time
     order = np.argsort(results["t"])
     for k in results:
@@ -343,6 +348,24 @@ def make_plots(sim, bench, bench_interp, out_prefix: Path, show: bool = False):
     print(f"Wrote {out_prefix}_combined.png")
 
 
+def make_slice_plot(ds, field, out_dir="./", axis = "z"):
+    """Make a slice plot of KE in the middle of the domain."""
+    add_new_fields(ds)
+    sl = yt.SlicePlot(ds, axis, field)
+    sl.set_cmap(field, "viridis")
+    sl.set_log(field, False)
+    #sl.set_zlim(field, 1e-6, 1e-1)
+    sl.annotate_title(f"t={ds.current_time:.3f}")
+    sl.save(str(out_dir))
+
+def load_dataset(ds_path):
+    """Load a dataset via yt and add derived fields."""
+    code_units = {"length_unit": (1.0, "m"),}
+    ds = yt.load(str(ds_path), units_override=code_units, unit_system="mks")
+
+    setup_vel_gradients(ds)
+    add_new_fields(ds)
+    return ds
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -369,8 +392,8 @@ def parse_args():
                    help="tolerance on L2(Ek) relative error")
     p.add_argument("--plot", action="store_true", default=True,
                    help="generate comparison plots (default: on)")
-    p.add_argument("--no-plot", dest="plot", action="store_false",
-                   help="skip plot generation")
+    p.add_argument("--plot-slices", action="store_true", default=False,
+                   help="generate slice plots (default: off)")
     p.add_argument("--save-csv", type=Path, default=None,
                    help="write simulation time series to CSV")
     return p.parse_args()
@@ -419,10 +442,6 @@ def main() -> int:
             sim = load_sim_csv(csv_in_run)
             print(f"Loaded simulation CSV: {len(sim['t'])} samples")
         else:
-            if not _yt_available():
-                print("yt not installed and no tgv_diagnostics.csv found. "
-                      "Install yt or run with --csv.", file=sys.stderr)
-                return 2
             plts = find_plotfiles(args.run_dir)
             if not plts:
                 print(f"No plt*/ found in {args.run_dir}", file=sys.stderr)
@@ -433,6 +452,14 @@ def main() -> int:
             nu_phys_plot = args.U0 * args.Lref / 1600.0 if args.Lref != 1.0 else args.nu
             sim = compute_yt_diagnostics(plts, nu_phys=nu_phys_plot, L_ref=args.Lref, U0=args.U0)
             print(f"Diagnostics: t={sim['t'][0]:.3f}..{sim['t'][-1]:.3f}")
+
+            if args.plot_slices:
+                print("Generating slice plots of KE and vorticity ...")
+                for pdir in plts:
+                    ds = load_dataset(pdir)
+                    make_slice_plot(ds, ("boxlib", "KE"), out_dir='plots_KE/', axis="z")
+                    make_slice_plot(ds, ("boxlib", "vorticity"), out_dir='plots_vort/', axis="x")
+                    make_slice_plot(ds, ("boxlib", "vorticity_z"), out_dir='plots_vortz/', axis="x")
     else:
         # auto-detect: look for CSV or plt* in CWD or script dir
         for cand in [Path.cwd(), _SCRIPT_DIR]:
