@@ -5,18 +5,17 @@
 #   u =  U0 sin(kx) cos(ky) cos(kz)
 #   v = -U0 cos(kx) sin(ky) cos(kz)
 #   w =  0
-# with k = 2pi/L_domain (one wavelength per domain). DNS reference (Dairay et al.
-# 2017) uses domain (2pi)^3 with k=1, nondim L_ref=1, U0=1, Re=1600.
-# This setup uses L_domain = L_ref = 1 (k=2pi), which is the same physical
-# TGV up to a uniform length rescale: viscous time scales as 1/(nu*k^2), so
-# evolution is (2pi)^2 faster in these units. analyze_tgv.py accounts for
-# this when comparing to TGV_Re1600.dat (see --domain-scale).
+#
+# Units: the DNS reference uses domain (2pi)^3, k=1, U0=1, nu=1/1600, so the
+# simulation is run directly in those units and results compare 1:1 to
+# TGV_Re1600.dat (t=0: Ek=0.125, <(du/dx)^2>=0.125).
+#   domain length  = units.ref_length = 2pi   (muphfasa sets dx = ref_length/N,
+#                                              and InitData uses k = 2pi/(N dx) = 1)
+#   units.Re       = U0 * ref_length / nu = 2pi * 1600
+# NOTE: units.Re is based on ref_length, so it is 2pi*Re_bench, NOT 1600.
 #
 # Default N=512 matches the reference 512^3 DNS (see TGV_Re1600.dat header).
-# For local smoke tests override on the command line, e.g.:
-#   ./test_tgv3d3d.gnu.ex inputs grid.ncells="32 32 32" grid.max_grid_size=32 \
-#       lbm.u_lat=0.08 units.Re=400 sim.max_step=1000 amr.plot_int=100
-# Note: Re=1600 at small N is unstable (tau -> 0.5); reduce Re for N<128.
+# For local smoke tests see inputs.small (N=32, Re_bench=100).
 
 # ── Grid ──────────────────────────────────────────────────────────────────
 grid.ncells       = 512 512 512   # cubic: one TGV wavelength per side
@@ -24,23 +23,25 @@ grid.max_grid_size = 64           # chop into 64^3 boxes for MPI distribution
 grid.n_ghost      = 1
 
 # ── Simulation ────────────────────────────────────────────────────────────
-# Benchmark time t=20 in L_ref/U0 units. With L_ref=1, U0=1, t_phys=20.
-# Lattice: dx=L_ref/N=1/512, dt=u_lat*dx/U0, steps = t_phys/dt.
-# At u_lat=0.05, dt=9.76e-5, steps=204800.
-sim.max_step     = 204800
+# Benchmark time t=20 (units of L/U0 with L=1). Lattice: dx=2pi/N=0.012272,
+# dt=u_lat*dx/U0=1.2272e-3  ->  t=20 is ~16300 steps. max_step is just a cap;
+# sim.stop_time ends the run.
+sim.max_step     = 20000
 sim.stop_time    = 20.0
 
 # ── LBM ──────────────────────────────────────────────────────────────────
 lbm.lattice_type = D3Q19
-# Pin u_lat (lattice ref velocity). At Re=1600, tau=0.5+nu*u_lat/(U*dx*cs2)
-# with nu=1/1600, dx=1/512 => tau=0.5+0.9375*u_lat. u_lat=0.05 => tau=0.547.
-lbm.u_lat        = 0.05
+# Pin u_lat (lattice ref velocity, Ma = u_lat/cs). With nu=1/1600, dx=2pi/512:
+#   tau = 0.5 + 3*nu*u_lat/(U0*dx) = 0.5 + 0.1528*u_lat
+# u_lat=0.1 -> tau=0.5153, Ma=0.17. Lower u_lat -> tau closer to 0.5 (less
+# stable for BGK) but smaller compressibility error and more steps.
+lbm.u_lat        = 0.1
 
 # ── Physical units ───────────────────────────────────────────────────────
-units.ref_length    = 1.0
+units.ref_length    = 6.283185307179586
 units.ref_velocity  = 1.0
 units.ref_density   = 1.0
-units.Re            = 1600.0
+units.Re            = 10053.096491487338    # = 2pi * 1600  ->  nu = 1/1600
 
 # ── Boundary conditions ──────────────────────────────────────────────────
 bc.lo_type = Periodic  Periodic  Periodic
@@ -48,16 +49,16 @@ bc.hi_type = Periodic  Periodic  Periodic
 
 # ── Geometry ─────────────────────────────────────────────────────────────
 geometry.prob_lo    = 0.0  0.0  0.0
-geometry.prob_hi    = 1.0  1.0  1.0
+geometry.prob_hi    = 6.283185307179586  6.283185307179586  6.283185307179586
 
 # ── Output ───────────────────────────────────────────────────────────────
-# Plotfiles contain density + velocity in physical units.
-# amr.plot_int sets both I/O and the in-situ diagnostic sampling cadence.
-# For N=512, 100 plotfiles are ~300 GB; increase plot_int if disk-limited.
-# The in-situ CSV (tgv_diagnostics.csv) is tiny and always written.
-amr.plot_int        = 2048
+# Plotfiles contain density + velocity in physical units (yt analysis).
+# amr.plot_int=163 -> dt_out=0.2 -> ~100 plotfiles (~300 GB at N=512); raise it
+# if disk-limited. bench.sample_int sets the in-situ CSV (tgv_diagnostics.csv)
+# cadence (tiny; ~0.02 time units here); defaults to plot_int if unset.
+amr.plot_int        = 163
 amr.chk_int         = 100000
 amr.plot_file       = plt
 amr.check_file      = chk
 
-bench.sample_int = 50
+bench.sample_int    = 16

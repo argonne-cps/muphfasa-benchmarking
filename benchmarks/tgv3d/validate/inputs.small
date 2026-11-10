@@ -1,28 +1,30 @@
-# Small smoke test for TGV (N=32) — verifies code path without HPC resources.
-# Re is lowered to 100 for stability at coarse resolution. Same L=1 convention
-# as inputs (k=2pi) so diagnostics map up to the 2pi domain-scale factor.
-grid.ncells       = 32 32 32
-grid.max_grid_size = 32
+# Small smoke test for TGV (N=64) — verifies code path without HPC resources.
+# Same benchmark-unit convention as `inputs` (domain 2pi, U0=1, k=1) but at
+# Re=100 so it is stable at coarse resolution: units.Re = 2pi * Re_bench.
+# N=32 is too coarse for the energy balance to close within 10% (LBM numerical
+# dissipation: ~19% at N=32, ~7% at N=64, ~3% at N=128).
+grid.ncells       = 64 64 64
+grid.max_grid_size = 64
 grid.n_ghost      = 1
 
-sim.max_step     = 800
-sim.stop_time    = 0.5
+sim.max_step     = 5000
+sim.stop_time    = 2.0
 
 lbm.lattice_type = D3Q19
-lbm.u_lat        = 0.08
+lbm.u_lat        = 0.1
 
-units.ref_length    = 1.0
+units.ref_length    = 6.283185307179586
 units.ref_velocity  = 1.0
 units.ref_density   = 1.0
-units.Re            = 100.0
+units.Re            = 628.3185307179586    # = 2pi * 100  ->  nu = 1/100
 
 bc.lo_type = Periodic  Periodic  Periodic
 bc.hi_type = Periodic  Periodic  Periodic
 
 geometry.prob_lo    = 0.0  0.0  0.0
-geometry.prob_hi    = 1.0  1.0  1.0
+geometry.prob_hi    = 6.283185307179586  6.283185307179586  6.283185307179586
 
-amr.plot_int        = 200
+amr.plot_int        = 100
 amr.chk_int         = 100000
 amr.plot_file       = plt
 amr.check_file      = chk
