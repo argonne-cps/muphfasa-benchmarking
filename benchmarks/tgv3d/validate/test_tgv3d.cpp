@@ -71,7 +71,6 @@ void computeDiagnostics(const amrex::MultiFab& vel_lat, const amrex::Geometry& g
         amrex::Array4<amrex::Real const> const& u = vel_g.const_array(mfi);
         amrex::Array4<amrex::Real> const& g2 = grad_sq.array(mfi);
         amrex::Array4<amrex::Real> const& v2 = vort_sq.array(mfi);
-        amrex::Array4<amrex::Real> const& dudx2 = dudx_sq.array(mfi);
 
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
             const amrex::Real h = amrex::Real(0.5);
@@ -89,8 +88,6 @@ void computeDiagnostics(const amrex::MultiFab& vel_lat, const amrex::Geometry& g
                       + dvdx*dvdx + dvdy*dvdy + dvdz*dvdz
                       + dwdx*dwdx + dwdy*dwdy + dwdz*dwdz;
 
-            dudx2(i,j,k) = dudx*dudx;
-
             const amrex::Real wx = dwdy - dvdz;
             const amrex::Real wy = dudz - dwdx;
             const amrex::Real wz = dvdx - dudy;
@@ -101,15 +98,11 @@ void computeDiagnostics(const amrex::MultiFab& vel_lat, const amrex::Geometry& g
     const amrex::Real inv_dt2 = amrex::Real(1.0) / (dt_phys * dt_phys);
     amrex::Real g2_sum = grad_sq.sum(0);
     amrex::Real v2_sum = vort_sq.sum(0);
-    amrex::Real dudx2_sum = dudx_sq.sum(0);
 
     amrex::Real g2_phys_mean = g2_sum * inv_dt2/ncell;
     amrex::Real v2_phys_mean = v2_sum * inv_dt2/ncell;
-    amrex::Real dudx2_phys_mean = dudx2_sum * inv_dt2/ncell;
 
     d.dissipation = nu_phys * g2_phys_mean;
-    amrex::Print() << "ncells=" << ncell << " nu=" << nu_phys << " dt=" << dt_phys
-    << " ke=" << d.ke << " g2=" << g2_phys_mean << " dudx2=" << dudx2_phys_mean << std::endl;
     d.enstrophy = amrex::Real(0.5) * v2_phys_mean;
 }
 
