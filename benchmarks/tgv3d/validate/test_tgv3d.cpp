@@ -161,9 +161,9 @@ int main(int argc, char* argv[])
         csv << "step,time_phys,time,Ek,dissipation,enstrophy\n";
 
         auto doSample = [&](int step, bool refresh_macro = true) {
-            // updateMacroscopic() streams m_fin first, so at t=0 it would return a
+            // updateMacroscopic(step) streams m_fin first, so at t=0 it would return a
             // lattice-smoothed IC; the t=0 sample reads m_vel as set by initData.
-            if (refresh_macro) sim->updateMacroscopic();
+            if (refresh_macro) sim->updateMacroscopic(step);
             Diagnostics d;
             d.step = step;
             d.time_phys = units.toPhysicalTime(sim->time());
