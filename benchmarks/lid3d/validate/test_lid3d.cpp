@@ -291,7 +291,7 @@ int main(int argc, char* argv[])
         const LidInfo lid = detectLid(params);
         const amrex::Real u_lid = sim->units().toLatticeVelocity(lid.u_lid_phys);
         const amrex::Real nu = (sim->units().relaxationTime() - amrex::Real(0.5)) * kCs2;
-        const amrex::Real Re = params.reynoldsNumber();
+        const amrex::Real Re = sim->units().reynoldsNumber();
 
         const int max_step = params.maxStep();
         const int every = params.plotInterval();

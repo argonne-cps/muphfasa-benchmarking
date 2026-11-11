@@ -142,18 +142,6 @@ int main(int argc, char* argv[])
         if (plot_int <= 0) plot_int = max_step;
         if (sample_int <= 0) sample_int = plot_int;
 
-        amrex::Print() << "TGV Re=1600 validation: N=" << params.ncells()[0]
-                       << " Re=" << params.reynoldsNumber()
-                       << " U0=" << params.refVelocity()
-                       << " L=" << params.refLength()
-                       << " nu_phys=" << nu_phys
-                       << " tau=" << tau
-                       << " u_lat=" << units.toLatticeVelocity(params.refVelocity())
-                       << " Ma=" << units.machNumber()
-                       << " dx=" << units.dx() << " dt=" << units.dt()
-                       << " max_step=" << max_step
-                       << " plot_int=" << plot_int << "\n";
-
         std::vector<Diagnostics> hist;
         hist.reserve(max_step / std::max(1, plot_int) + 2);
 
