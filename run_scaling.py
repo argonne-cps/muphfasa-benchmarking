@@ -62,7 +62,12 @@ def _run_batch_generate(args, dim: int, lattice: str):
         print(f"batch generator not found: {gen}", file=sys.stderr)
         sys.exit(1)
 
-    pairs = list(zip(args.sizes, itertools.islice(itertools.cycle(args.nodes), len(args.sizes))))
+    # if strong scaling then match len size to nodes
+    if args.mode == 'strong':
+        sizes = [args.sizes[0]]*len(args.nodes)
+    else:
+        sizes = args.sizes
+    pairs = list(zip(sizes, itertools.islice(itertools.cycle(args.nodes), len(sizes))))
     print(f"Batch mode: {args.case} dim={dim} lattice={lattice} ppn={args.ppn} queue={args.queue or 'auto'}")
     print(f"  sweep pairs (size ↔ nodes): {pairs}")
     if args.max_grid_size != 32:
@@ -174,8 +179,14 @@ def main():
         build_bench(args.case, dim, use_mpi=True)
 
     results = []
-    nodes_cycle = itertools.islice(itertools.cycle(args.nodes), len(args.sizes))
-    for size, nodes in zip(args.sizes, nodes_cycle):
+
+    # if strong scaling then match len size to nodes
+    if args.mode == 'strong':
+        sizes = [args.sizes[0]]*len(args.nodes)
+    else:
+        sizes = args.sizes
+    nodes_cycle = itertools.islice(itertools.cycle(args.nodes), len(sizes))
+    for size, nodes in zip(sizes, nodes_cycle):
         nprocs = max(1, nodes) * max(1, args.ppn)
         # Build overrides: grid.ncells and lattice. max_grid_size is fixed and
         # independent of the domain size so multi-rank runs actually get more

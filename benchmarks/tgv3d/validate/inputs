@@ -14,28 +14,24 @@
 #   units.Re       = U0 * ref_length / nu = 2pi * 1600
 # NOTE: units.Re is based on ref_length, so it is 2pi*Re_bench, NOT 1600.
 #
-# Default N=512 matches the reference 512^3 DNS (see TGV_Re1600.dat header).
-# For local smoke tests see inputs.small (N=32, Re_bench=100).
 
 # ── Grid ──────────────────────────────────────────────────────────────────
-grid.ncells       = 512 512 512   # cubic: one TGV wavelength per side
+grid.ncells       = 768 768 768 # cubic: one TGV wavelength per side
 grid.max_grid_size = 64           # chop into 64^3 boxes for MPI distribution
 grid.n_ghost      = 1
 
 # ── Simulation ────────────────────────────────────────────────────────────
-# Benchmark time t=20 (units of L/U0 with L=1). Lattice: dx=2pi/N=0.012272,
-# dt=u_lat*dx/U0=1.2272e-3  ->  t=20 is ~16300 steps. max_step is just a cap;
-# sim.stop_time ends the run.
-sim.max_step     = 20000
+# Benchmark time t=20 in L_ref/U0 units. With L_ref=1, U0=1, t_phys=20.
+# Lattice: dx=L_ref/N=1/768, dt=u_lat*dx/U0, steps = t_phys/dt.
+# At u_lat=0.08, dt=9.76e-5, steps=204800.
+sim.max_step     = 34000
 sim.stop_time    = 20.0
 
 # ── LBM ──────────────────────────────────────────────────────────────────
 lbm.lattice_type = D3Q19
-# Pin u_lat (lattice ref velocity, Ma = u_lat/cs). With nu=1/1600, dx=2pi/512:
-#   tau = 0.5 + 3*nu*u_lat/(U0*dx) = 0.5 + 0.1528*u_lat
-# u_lat=0.1 -> tau=0.5153, Ma=0.17. Lower u_lat -> tau closer to 0.5 (less
-# stable for BGK) but smaller compressibility error and more steps.
-lbm.u_lat        = 0.1
+# Pin u_lat (lattice ref velocity). At Re=1600, tau=0.5+nu*u_lat/(U*dx*cs2)
+# with nu=1/1600, dx=1/768 => tau=0.5+0.9375*u_lat. u_lat=0.08 => tau=0.615.
+lbm.u_lat        = 0.08
 
 # ── Physical units ───────────────────────────────────────────────────────
 units.ref_length    = 6.283185307179586
@@ -52,13 +48,15 @@ geometry.prob_lo    = 0.0  0.0  0.0
 geometry.prob_hi    = 6.283185307179586  6.283185307179586  6.283185307179586
 
 # ── Output ───────────────────────────────────────────────────────────────
-# Plotfiles contain density + velocity in physical units (yt analysis).
-# amr.plot_int=163 -> dt_out=0.2 -> ~100 plotfiles (~300 GB at N=512); raise it
-# if disk-limited. bench.sample_int sets the in-situ CSV (tgv_diagnostics.csv)
-# cadence (tiny; ~0.02 time units here); defaults to plot_int if unset.
-amr.plot_int        = 163
-amr.chk_int         = 100000
+# Plotfiles contain density + velocity in physical units.
+# amr.plot_int sets both I/O and the in-situ diagnostic sampling cadence.
+# For N=512, 100 plotfiles are ~300 GB; increase plot_int if disk-limited.
+# The in-situ CSV (tgv_diagnostics.csv) is tiny and always written.
+amr.plot_int        = 19200
+amr.chk_int         = -1
 amr.plot_file       = plt
 amr.check_file      = chk
+bench.sample_int    = 200
 
-bench.sample_int    = 16
+# save in single precision to save space
+amrex.use_gpu_aware_mpi=1
