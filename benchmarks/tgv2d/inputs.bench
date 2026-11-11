@@ -48,3 +48,6 @@ amr.chk_int         = -1
 amr.plot_file       = plt
 amr.check_file      = chk
 bench.save_checkpoint = 0   # set to 1 to write chk<max_step> after timed region (for analysis / load-balancing)
+
+## Ensure gpu aware mpi is on
+amrex.use_gpu_aware_mpi=1

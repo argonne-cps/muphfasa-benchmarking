@@ -99,7 +99,7 @@ DEFAULT_STEPS  = {2: 2000, 3: 500}
 HEADER_TMPL = """#!/bin/bash -l
 #PBS -l select={nodes}
 #PBS -l walltime={walltime}
-#PBS -l filesystems=flare
+#PBS -l filesystems={filesystems}
 #PBS -q {queue}
 #PBS -A {project}
 #PBS -N {job_name}
@@ -153,7 +153,7 @@ COMPILING_BLOCK = """
 echo "=== COMPILING $CASE (DIM=$DIM) ==="
 if [ -d "benchmarks/$CASE" ]; then
   make -C benchmarks/$CASE $BUILD_OPTS clean || true
-  make -C benchmarks/$CASE -j4 $BUILD_OPTS
+  make -C benchmarks/$CASE -j6 $BUILD_OPTS
   BENCH_EXE_NAME=$(make -C benchmarks/$CASE $BUILD_OPTS print-executable 2>/dev/null | sed -n 's/^executable is \\(.*\\)$/\\1/p')
   echo "Built benchmarks/$CASE/$BENCH_EXE_NAME"
 else
@@ -165,7 +165,7 @@ echo "Compile stage done."
 
 VALIDATE_COMPILE_SNIPPET = """if [ -d "{validate_dir}" ]; then
   make -C {validate_dir} DIM=$DIM USE_MPI=TRUE USE_SYCL=TRUE COMP=intel clean 2>/dev/null || make -C {validate_dir} DIM=$DIM clean 2>/dev/null || true
-  make -C {validate_dir} -j4 DIM=$DIM USE_MPI=TRUE USE_SYCL=TRUE COMP=intel || make -C {validate_dir} -j4 DIM=$DIM
+  make -C {validate_dir} -j6 DIM=$DIM USE_MPI=TRUE USE_SYCL=TRUE COMP=intel || make -C {validate_dir} -j6 DIM=$DIM
   echo "Built {validate_dir}/test_*.ex"
 fi"""
 
@@ -231,7 +231,7 @@ echo "Resolved bench exe: $BENCH_EXE (from make print-executable)"
 # Fallback build if compiling stage was not included and exe is missing
 if [ ! -x "$BENCH_EXE" ]; then
   echo "bench exe $BENCH_EXE not found — building on compute node (prefer compiling stage)"
-  make -C benchmarks/$CASE -j4 $BUILD_OPTS
+  make -C benchmarks/$CASE -j6 $BUILD_OPTS
 fi
 if [ ! -x "$BENCH_EXE" ]; then echo "ERROR: bench exe $BENCH_EXE missing after build; found:"; ls -l benchmarks/$CASE/*.ex 2>&1 || echo "(no *.ex in benchmarks/$CASE)"; exit 1; fi
 INPUTS="benchmarks/$CASE/inputs.bench"
@@ -310,7 +310,8 @@ def parse_args():
     p.add_argument("--ppn", type=int, default=12, help="ranks per node (default 12 = 6 GPUs x 2 tiles)")
     p.add_argument("--queue", type=str, default=None, help="PBS queue (default: auto from nodes — debug 1-2, debug-scaling 2-256, prod 256+)")
     p.add_argument("--walltime", type=str, default="00:30:00")
-    p.add_argument("--project", type=str, default="muphfasa", help="ALCF project allocation")
+    p.add_argument("--project", type=str, default=None, help="ALCF project allocation (default: muphfasa on Aurora, catalyst on Sunspot)")
+    p.add_argument("--sunspot", action="store_true", default=False, help="target Sunspot (sets defaults: queue=workq, project=catalyst, filesystems=home:tegu, FLARE_ROOT on /lus/flare/projects/catalyst)")
     p.add_argument("--stages", nargs="+", choices=ALL_STAGES, default=ALL_STAGES,
                    help="which stages to include (default: all three; pick any subset in any order)")
     p.add_argument("--warmup", type=int, default=None, help="warmup steps (default per dim: 2D=100, 3D=50)")
@@ -392,9 +393,17 @@ def main():
     args.outdir.mkdir(parents=True, exist_ok=True)
     written = []
 
+    is_sunspot = args.sunspot
+    default_project = "catalyst" if is_sunspot else "muphfasa"
+    effective_project = args.project or default_project
+    default_filesystems = "home:tegu" if is_sunspot else "flare"
+
     for case, nodes, size in combos:
-        queue = args.queue or auto_queue(nodes)
-        validate_queue(queue, nodes)
+        if is_sunspot:
+            queue = args.queue or "workq"
+        else:
+            queue = args.queue or auto_queue(nodes)
+            validate_queue(queue, nodes)
         dim = CASE_DIM[case]
         lattice = args.lattice or CASE_LATTICE[case]
         if size is None:
@@ -407,7 +416,12 @@ def main():
         steps  = args.steps  if args.steps  is not None else DEFAULT_STEPS[dim]
         save_checkpoint = 1 if args.save_checkpoint else 0
 
-        flare_root = args.flare_root or f"/flare/{args.project}/$USER/muphfasa-benchmarking-runs"
+        if args.flare_root:
+            flare_root = args.flare_root
+        elif is_sunspot:
+            flare_root = "/lus/flare/projects/catalyst/world_shared/$USER/muphfasa-benchmarking-runs"
+        else:
+            flare_root = f"/flare/{effective_project}/$USER/muphfasa-benchmarking-runs"
 
         stages_str = " ".join(stages_sorted)
         stages_tag = "" if set(stages_sorted) == set(ALL_STAGES) else "_" + "_".join(stages_sorted)
@@ -437,7 +451,8 @@ def main():
             blocks.append(PERFORMANCE_BLOCK)
 
         header = HEADER_TMPL.format(
-            nodes=nodes, walltime=args.walltime, queue=queue, project=args.project,
+            nodes=nodes, walltime=args.walltime, queue=queue, project=effective_project,
+            filesystems=default_filesystems,
             job_name=job_name, case=case, size=size, lattice=lattice, ppn=args.ppn,
             dim=dim, ncells=ncells, stages_str=stages_str, out_rel=out_rel,
             warmup=warmup, steps=steps, save_checkpoint=save_checkpoint,
