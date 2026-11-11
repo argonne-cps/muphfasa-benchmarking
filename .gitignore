@@ -17,3 +17,6 @@ convergence_runs*/
 plt*/
 analytic_plt*/
 chk*/
+*.o*
+*.e*
+batch/generated/*.sh
