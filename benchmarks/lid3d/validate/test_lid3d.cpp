@@ -301,7 +301,7 @@ int main(int argc, char* argv[])
         hist.reserve(max_step / std::max(1, every) + 2);
 
         for (int step = 0; step <= max_step; ++step) {
-            sim->advanceFused(step);
+            sim->advance();
             sim->writeOutput(step);
 
             if (step % every == 0) {

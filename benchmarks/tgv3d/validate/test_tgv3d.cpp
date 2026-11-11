@@ -188,7 +188,7 @@ int main(int argc, char* argv[])
         doSample(0, false);
 
         for (int step = 0; step <= max_step; ++step) {
-            sim->advanceFused(step);
+            sim->advance();
             sim->writeOutput(step);
 
             // Sample at plot interval (avoid duplicating the t=0 sample)

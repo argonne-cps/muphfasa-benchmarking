@@ -59,13 +59,13 @@ int main(int argc, char* argv[])
 
         // Warmup (not timed, also fills caches)
         for (int step = 0; step < warmup; ++step) {
-            sim->advanceFused(step);
+            sim->advance();
         }
         amrex::ParallelDescriptor::Barrier();
         double t0 = amrex::second();
 
         for (int step = warmup; step < max_step; ++step) {
-            sim->advanceFused(step);
+            sim->advance();
             // No I/O in bench mode: inputs.bench should have amr.plot_int=-1
         }
         amrex::ParallelDescriptor::Barrier();
