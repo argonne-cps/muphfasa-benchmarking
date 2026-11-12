@@ -5,6 +5,7 @@
 // benchmark's own InitData.cpp (if any) overriding the default quiescent
 // start via VPATH precedence. Measures MLUPS without plotfile overhead.
 
+#include "bench.H"
 #include "IO/Checkpoint.H"
 #include "IO/InputParser.H"
 #include "Simulation/ISimulation.H"
@@ -18,6 +19,8 @@
 #include <cmath>
 
 using namespace muphfasa;
+
+namespace bench {
 
 void do_bench(InputParser& params)
 {
@@ -101,3 +104,5 @@ void do_bench(InputParser& params)
         amrex::Print() << "Checkpoint done: " << cname << "\n";
     }
 }
+
+} // namespace bench
