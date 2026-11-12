@@ -7,7 +7,8 @@ DIM ?= 2
 
 EBASE = bench
 
-CEXE_sources += ../bench.cpp ../main.cpp
+CEXE_sources += ../bench.cpp
+CEXE_sources += main.cpp
 # No custom InitData.cpp: uses default quiescent start, lid velocity via BC
 VPATH_LOCATIONS += ..
 INCLUDE_LOCATIONS += ..
