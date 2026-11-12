@@ -5,9 +5,9 @@ TOP := ../../../external/muphfasa
 
 DIM ?= 3
 
-EBASE = test_tgv3d
+EBASE = test_tgv
 
-CEXE_sources += test_tgv3d.cpp
+CEXE_sources += main.cpp
 
 vpath InitData.cpp ..
 INCLUDE_LOCATIONS += ..

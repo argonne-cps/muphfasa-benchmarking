@@ -8,7 +8,7 @@ DIM ?= 2
 
 EBASE = bench
 
-CEXE_sources += ../bench.cpp
+CEXE_sources += ../bench.cpp ../main.cpp
 # Local InitData.cpp and TgvAnalytic.H provide TGV IC (VPATH precedence)
 CEXE_sources += InitData.cpp
 VPATH_LOCATIONS += ..

@@ -19,91 +19,85 @@
 
 using namespace muphfasa;
 
-int main(int argc, char* argv[])
+void do_bench(InputParser& params)
 {
-    amrex::Initialize(argc, argv);
+    auto sim = makeSimulation(params);
+    sim->initialize();
+
+    const auto ncells = params.ncells();
+    long long total_cells = 1;
+
+    std::string lattice = params.latticeType();
+    
+    for (auto n : ncells) total_cells *= n;
+    // For MLUPS we report global lattice updates per second.
+
+    const int max_step = params.maxStep();
+    int warmup = std::min(10, max_step/10);
+    int save_checkpoint = 0;
+    std::string check_file = params.checkpointPrefix();
     {
-        InputParser params;
-        auto sim = makeSimulation(params);
-        sim->initialize();
-
-        const auto ncells = params.ncells();
-        long long total_cells = 1;
-
-        std::string lattice = params.latticeType();
-        
-        for (auto n : ncells) total_cells *= n;
-        // For MLUPS we report global lattice updates per second.
-
-        const int max_step = params.maxStep();
-        int warmup = std::min(10, max_step/10);
-        int save_checkpoint = 0;
-        std::string check_file = params.checkpointPrefix();
-        {
-            amrex::ParmParse ppbench("bench");
-            ppbench.query("warmup", warmup);
-            ppbench.query("save_checkpoint", save_checkpoint);
-            ppbench.query("checkpoint", save_checkpoint);
-            ppbench.query("check_file", check_file);
-        }
-        {
-            amrex::ParmParse ppamr("amr");
-            ppamr.query("check_file", check_file);
-        }
-        const int bench_steps = max_step - warmup;
-
-        amrex::Print() << "\n=== Benchmark: " << lattice << " "
-                       << "cells=" << total_cells 
-                       << " max_step=" << max_step
-                       << " warmup=" << warmup << " bench_steps=" << bench_steps << " ===\n";
-
-        // Warmup (not timed, also fills caches)
-        for (int step = 0; step < warmup; ++step) {
-            sim->advance();
-        }
-        amrex::ParallelDescriptor::Barrier();
-        double t0 = amrex::second();
-
-        for (int step = warmup; step < max_step; ++step) {
-            sim->advance();
-            // No I/O in bench mode: inputs.bench should have amr.plot_int=-1
-        }
-        amrex::ParallelDescriptor::Barrier();
-        double t1 = amrex::second();
-        double elapsed = t1 - t0;
-        // Reduce across ranks (max, since all ranks should be similar)
-        amrex::ParallelDescriptor::ReduceRealMax(elapsed);
-
-        // MLUPS = Million Lattice (cell) Updates Per Second, the standard LBM
-        // community definition (Palabos/waLBerla/HemeLB/OpenLB): cells*steps
-        // over wall time.
-        double mlups = (double)total_cells * bench_steps / (elapsed * 1e6);
-        double ms_per_step = (elapsed / bench_steps) * 1e3;
-
-        amrex::Print() << "Benchmark result: elapsed=" << elapsed << " s for "
-                       << bench_steps << " steps\n";
-        amrex::Print() << "  MLUPS=" << mlups 
-                       << "  ms/step=" << ms_per_step << "\n";
-        amrex::Print() << "  Config: lattice=" << lattice
-                       << " ncells=";
-        for (size_t i=0;i<ncells.size();++i) amrex::Print() << ncells[i] << (i+1<ncells.size()?"x":"");
-        amrex::Print() << " MPI ranks=" << amrex::ParallelDescriptor::NProcs() << "\n";
-
-        // Also print in parseable form for run_scaling.py / perf.py
-        amrex::Print() << "BENCH_RESULT mlups=" << mlups
-                       << " ms_per_step=" << ms_per_step
-                       << " elapsed=" << elapsed
-                       << "\n";
-
-        if (save_checkpoint) {
-            std::string cname = checkpointName(check_file, max_step);
-            amrex::Print() << "Saving final checkpoint: " << cname
-                           << " at step " << max_step << "\n";
-            writeCheckpoint(cname, sim->f(), sim->geom(), max_step, sim->time());
-            amrex::ParallelDescriptor::Barrier();
-            amrex::Print() << "Checkpoint done: " << cname << "\n";
-        }
+        amrex::ParmParse ppbench("bench");
+        ppbench.query("warmup", warmup);
+        ppbench.query("save_checkpoint", save_checkpoint);
+        ppbench.query("checkpoint", save_checkpoint);
+        ppbench.query("check_file", check_file);
     }
-    amrex::Finalize();
-    return 0;
+    {
+        amrex::ParmParse ppamr("amr");
+        ppamr.query("check_file", check_file);
+    }
+    const int bench_steps = max_step - warmup;
+
+    amrex::Print() << "\n=== Benchmark: " << lattice << " "
+                   << "cells=" << total_cells 
+                   << " max_step=" << max_step
+                   << " warmup=" << warmup << " bench_steps=" << bench_steps << " ===\n";
+
+    // Warmup (not timed, also fills caches)
+    for (int step = 0; step < warmup; ++step) {
+        sim->advance();
+    }
+    amrex::ParallelDescriptor::Barrier();
+    double t0 = amrex::second();
+
+    for (int step = warmup; step < max_step; ++step) {
+        sim->advance();
+        // No I/O in bench mode: inputs.bench should have amr.plot_int=-1
+    }
+    amrex::ParallelDescriptor::Barrier();
+    double t1 = amrex::second();
+    double elapsed = t1 - t0;
+    // Reduce across ranks (max, since all ranks should be similar)
+    amrex::ParallelDescriptor::ReduceRealMax(elapsed);
+
+    // MLUPS = Million Lattice (cell) Updates Per Second, the standard LBM
+    // community definition (Palabos/waLBerla/HemeLB/OpenLB): cells*steps
+    // over wall time.
+    double mlups = (double)total_cells * bench_steps / (elapsed * 1e6);
+    double ms_per_step = (elapsed / bench_steps) * 1e3;
+
+    amrex::Print() << "Benchmark result: elapsed=" << elapsed << " s for "
+                   << bench_steps << " steps\n";
+    amrex::Print() << "  MLUPS=" << mlups 
+                   << "  ms/step=" << ms_per_step << "\n";
+    amrex::Print() << "  Config: lattice=" << lattice
+                   << " ncells=";
+    for (size_t i=0;i<ncells.size();++i) amrex::Print() << ncells[i] << (i+1<ncells.size()?"x":"");
+    amrex::Print() << " MPI ranks=" << amrex::ParallelDescriptor::NProcs() << "\n";
+
+    // Also print in parseable form for run_scaling.py / perf.py
+    amrex::Print() << "BENCH_RESULT mlups=" << mlups
+                   << " ms_per_step=" << ms_per_step
+                   << " elapsed=" << elapsed
+                   << "\n";
+
+    if (save_checkpoint) {
+        std::string cname = checkpointName(check_file, max_step);
+        amrex::Print() << "Saving final checkpoint: " << cname
+                       << " at step " << max_step << "\n";
+        writeCheckpoint(cname, sim->f(), sim->geom(), max_step, sim->time());
+        amrex::ParallelDescriptor::Barrier();
+        amrex::Print() << "Checkpoint done: " << cname << "\n";
+    }
 }
