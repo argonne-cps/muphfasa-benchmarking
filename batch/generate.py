@@ -424,10 +424,10 @@ def main():
             flare_root = f"/flare/{effective_project}/$USER/muphfasa-benchmarking-runs"
 
         stages_str = " ".join(stages_sorted)
-        stages_tag = "" if set(stages_sorted) == set(ALL_STAGES) else "_" + "_".join(stages_sorted)
+        stages_tag = "_" + "_".join(stages_sorted)
         ckpt_tag = "_ckpt" if save_checkpoint else ""
-        job_name = f"{case}_{size}_{nodes}nodes{stages_tag}{ckpt_tag}"
-        fname = f"{case}_{size}_{nodes}nodes{stages_tag}{ckpt_tag}.sh"
+        job_name = f"{case}_{size}_{lattice}_{nodes}nodes{stages_tag}{ckpt_tag}"
+        fname = f"{case}_{size}_{lattice}_{nodes}nodes{stages_tag}{ckpt_tag}.sh"
         out_path = args.outdir / fname
         out_rel = os.path.relpath(out_path, REPO_ROOT)
 

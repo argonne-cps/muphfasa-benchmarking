@@ -117,11 +117,8 @@ def _run_batch_generate(args, dim: int, lattice: str):
     if not args.dry_run:
         print(f"\nBatch scripts ready for {len(written)} sweep point(s). Submit with e.g.:")
         for size, nodes in written:
-            tag = ""
-            if args.stages and set(args.stages) != {"compiling", "validating", "performance"}:
-                tag = "_" + "_".join(sorted(args.stages, key=lambda s: ["compiling", "validating", "performance"].index(s)))
-            print(f"  qsub batch/generated/{args.case}_{size}_{nodes}nodes{tag}.sh")
-        print(f"  or: qsub batch/generated/{args.case}_*.sh  (all)")
+            tag = "_" + "_".join(sorted(args.stages, key=lambda s: ["compiling", "validating", "performance"].index(s)))
+            print(f"  qsub batch/generated/{args.case}_{size}_{lattice}_{nodes}nodes{tag}.sh")
     return 0
 
 
