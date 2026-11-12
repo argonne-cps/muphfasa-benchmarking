@@ -20,16 +20,16 @@ void initData(amrex::MultiFab& rho, amrex::MultiFab& vel, const UnitConverter& u
         const amrex::Box& bx = mfi.validbox();
         auto r = rho.array(mfi);
         auto u = vel.array(mfi);
-        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k_) {
+        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int l) {
             amrex::Real x = amrex::Real(i) + 0.5;
             amrex::Real y = amrex::Real(j) + 0.5;
-            amrex::Real z = amrex::Real(k_) + 0.5;
+            amrex::Real z = amrex::Real(l) + 0.5;
             amrex::Real ux, uy, uz;
-            tgv3d::initUVW(x,y,z,k,u0,amrex::Real(0),amrex::Real(0),ux,uy,uz);
-            r(i,j,k_,0) = tgv3d::initRho(x,y,z,k,u0,amrex::Real(0),amrex::Real(0));
-            u(i,j,k_,0) = ux;
-            u(i,j,k_,1) = uy;
-            u(i,j,k_,2) = uz;
+            tgv3d::initUVW(x,y,z,k,u0,ux,uy,uz);
+            r(i,j,l,0) = tgv3d::initRho(x,y,z,k,u0,amrex::Real(0),amrex::Real(0));
+            u(i,j,l,0) = ux;
+            u(i,j,l,1) = uy;
+            u(i,j,l,2) = uz;
         });
     }
 }

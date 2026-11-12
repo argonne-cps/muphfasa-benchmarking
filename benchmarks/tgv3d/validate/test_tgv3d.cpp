@@ -1,40 +1,21 @@
-// test_tgv3d.cpp — Correctness test: 3-D TGV global kinetic-energy balance.
+// test_tgv3d.cpp — TGV Re=1600 validation vs. Dairay et al. 2017 DNS (TGV_Re1600.dat).
 //
-// Mirrors external/muphfasa/tests/regression/tgv2d/test_tgv2d.cpp's use of the
-// normal InputParser/ISimulation/advanceFused() machinery with the non-quiescent
-// initial condition supplied by ../InitData.cpp (see ../Tgv3dAnalytic.H for
-// the analytic IC). This is the validation counterpart to
-// benchmarks/tgv3d/inputs.bench (performance-only, no correctness check) --
-// see benchmarks/tgv3d/../../README.md's "Validate vs Perf" section.
+// Triply-periodic 3-D Taylor-Green vortex at Re=1600. The classic TGV has no
+// closed-form t>0 solution (vortex stretching cascades energy), so two
+// complementary checks are performed:
 //
-// Unlike tgv2d/beltrami3d, the classic 3-D TGV has no closed-form solution
-// for t>0 (vortex stretching moves energy into other Fourier modes -- see
-// ../Tgv3dAnalytic.H), so this test can't fcompare the field against an
-// analytic plotfile. Instead it checks the one identity that IS exact for
-// incompressible Navier-Stokes regardless of vortex stretching: the global
-// kinetic-energy balance
+//  1. Global energy balance (in-situ, always):  KE(0)-KE(T) = nu * int |curl u|^2 dt
+//     Exact for periodic incompressible NS; residual is trapz + truncation error.
+//  2. DNS benchmark (post-processing): E_k(t), dissipation epsilon(t), and
+//     enstrophy vs. TGV_Re1600.dat, evaluated by analyze_tgv.py reading the
+//     AMReX plotfiles via yt. This driver writes the plotfiles and an in-situ
+//     CSV (tgv_diagnostics.csv) with the same quantities for cross-check.
 //
-//   d/dt [ (1/2) integral |u|^2 dV ] = -nu * integral |vort|^2 dV
-//
-// Nonlinear advection and the pressure gradient do no net work on a
-// periodic, divergence-free field -- they only move energy between Fourier
-// modes, never create or destroy it -- so kinetic energy can only change via
-// viscous dissipation, exactly, at any Re/amplitude/duration. Integrating
-// over the run:
-//
-//   KE(0) - KE(T) = nu * integral_0^T ( integral |curl(u)|^2 dV ) dt
-//
-// At every amr.plot_int step this computes, in lattice units straight off
-// sim->vel() (dx=dt=1 so no unit conversion needed for the balance itself):
-//   KE(t) = (1/2) * sum_cells |u|^2
-//   W(t)  =         sum_cells |curl(u)|^2   (central differences on a
-//                                             periodic-ghost-filled copy)
-// then compares KE(0)-KE(T) against nu * trapz(W, t) and reports the
-// relative error. Remaining error here comes only from the trapezoidal time
-// integration and the solver's own truncation error, not from an
-// approximation to the physics -- unlike the old pointwise check against a
-// linearized decay, which only held in a regime too weak to ever exercise
-// the nonlinear term it was meant to be validating.
+// Units: run directly in the DNS benchmark units: domain [0,2pi]^3 (= units.ref_length),
+// U0=1, nu=1/1600 (k=1, so t=0 has Ek=0.125 and <(du/dx)^2>=0.125). Because
+// units.Re = U0*ref_length/nu, the input value is 2pi*1600, not 1600. The
+// inputs file pins lbm.u_lat so tau is derived consistently; see inputs for
+// the dt/step budget. Output columns are physical == benchmark units.
 
 #include "IO/InputParser.H"
 #include "Simulation/ISimulation.H"
@@ -47,42 +28,82 @@
 #include <AMReX_Print.H>
 
 #include <cmath>
+#include <fstream>
 #include <vector>
 
 using namespace muphfasa;
 
 namespace {
 
-// KE = (1/2) sum|u|^2 ; enstrophy = 1/2 sum|curl(u)|^2, both in lattice units
-// (dx=dt=1), via central differences on a periodic-ghost-filled copy of vel.
-void computeEnergyAndEnstrophy(const amrex::MultiFab& vel, const amrex::Geometry& geom,
-                            amrex::Real& ke, amrex::Real& enstrophy)
-{
-    ke = amrex::Real(0.5) * amrex::MultiFab::Dot(vel, 0, vel.nComp(), 0);
+struct Diagnostics {
+    amrex::Real time_phys = 0.0;
+    int step = 0;
+    amrex::Real ke = 0.0;          // 0.5 * mean(|u_phys|^2)  volume-averaged
+    amrex::Real enstrophy = 0.0;   // 0.5 * mean(|vort_phys|^2)
+    amrex::Real dissipation = 0.0; // nu * mean(|grad u_phys|^2) = 2*nu*enstrophy (periodic)
+    amrex::Real dissipation_alt = 0.0; // -dEk/dt via finite diff (check)
+};
 
-    amrex::MultiFab vel_g(vel.boxArray(), vel.DistributionMap(), vel.nComp(), 1);
-    amrex::MultiFab::Copy(vel_g, vel, 0, 0, vel.nComp(), 0);
+void computeDiagnostics(const amrex::MultiFab& vel_lat, const amrex::Geometry& geom,
+                        const UnitConverter& units, Diagnostics& d)
+{
+    const amrex::Real dx_phys = units.dx();
+    const amrex::Real dt_phys = units.dt();
+    const amrex::Real nu_lat = (units.relaxationTime() - amrex::Real(0.5)) * tgv3d::kCs2;
+    const amrex::Real nu_phys = units.toPhysicalViscosity(nu_lat);
+    const amrex::Real ncell = static_cast<amrex::Real>(vel_lat.boxArray().numPts());
+
+    amrex::Real ke_lat_sum = amrex::Real(0.5) * amrex::MultiFab::Dot(vel_lat, 0, vel_lat.nComp(), 0);
+    d.ke = ke_lat_sum * (dx_phys*dx_phys)/(dt_phys*dt_phys)/ncell;
+
+    amrex::MultiFab vel_g(vel_lat.boxArray(), vel_lat.DistributionMap(), vel_lat.nComp(), 1);
+    amrex::MultiFab::Copy(vel_g, vel_lat, 0, 0, vel_lat.nComp(), 0);
+
+    // tgv all bounds are periodic
     vel_g.FillBoundary(geom.periodicity());
 
-    amrex::MultiFab curl(vel.boxArray(), vel.DistributionMap(), 3, 0);
+    amrex::MultiFab grad_sq(vel_lat.boxArray(), vel_lat.DistributionMap(), 1, 0);
+    amrex::MultiFab vort_sq(vel_lat.boxArray(), vel_lat.DistributionMap(), 1, 0);
+    amrex::MultiFab dudx_sq(vel_lat.boxArray(), vel_lat.DistributionMap(), 1, 0);
+
     for (amrex::MFIter mfi(vel_g); mfi.isValid(); ++mfi) {
         const amrex::Box& bx = mfi.validbox();
         amrex::Array4<amrex::Real const> const& u = vel_g.const_array(mfi);
-        amrex::Array4<amrex::Real> const& w = curl.array(mfi);
+        amrex::Array4<amrex::Real> const& g2 = grad_sq.array(mfi);
+        amrex::Array4<amrex::Real> const& v2 = vort_sq.array(mfi);
 
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-            const amrex::Real dudy = (u(i,j+1,k,0) - u(i,j-1,k,0)) * amrex::Real(0.5);
-            const amrex::Real dudz = (u(i,j,k+1,0) - u(i,j,k-1,0)) * amrex::Real(0.5);
-            const amrex::Real dvdx = (u(i+1,j,k,1) - u(i-1,j,k,1)) * amrex::Real(0.5);
-            const amrex::Real dvdz = (u(i,j,k+1,1) - u(i,j,k-1,1)) * amrex::Real(0.5);
-            const amrex::Real dwdx = (u(i+1,j,k,2) - u(i-1,j,k,2)) * amrex::Real(0.5);
-            const amrex::Real dwdy = (u(i,j+1,k,2) - u(i,j-1,k,2)) * amrex::Real(0.5);
-            w(i,j,k,0) = dwdy - dvdz;
-            w(i,j,k,1) = dudz - dwdx;
-            w(i,j,k,2) = dvdx - dudy;
+            const amrex::Real h = amrex::Real(0.5);
+            const amrex::Real dudx = h * (u(i+1,j,k,0) - u(i-1,j,k,0));
+            const amrex::Real dudy = h * (u(i,j+1,k,0) - u(i,j-1,k,0));
+            const amrex::Real dudz = h * (u(i,j,k+1,0) - u(i,j,k-1,0));
+            const amrex::Real dvdx = h * (u(i+1,j,k,1) - u(i-1,j,k,1));
+            const amrex::Real dvdy = h * (u(i,j+1,k,1) - u(i,j-1,k,1));
+            const amrex::Real dvdz = h * (u(i,j,k+1,1) - u(i,j,k-1,1));
+            const amrex::Real dwdx = h * (u(i+1,j,k,2) - u(i-1,j,k,2));
+            const amrex::Real dwdy = h * (u(i,j+1,k,2) - u(i,j-1,k,2));
+            const amrex::Real dwdz = h * (u(i,j,k+1,2) - u(i,j,k-1,2));
+
+            g2(i,j,k) = dudx*dudx + dudy*dudy + dudz*dudz
+                      + dvdx*dvdx + dvdy*dvdy + dvdz*dvdz
+                      + dwdx*dwdx + dwdy*dwdy + dwdz*dwdz;
+
+            const amrex::Real wx = dwdy - dvdz;
+            const amrex::Real wy = dudz - dwdx;
+            const amrex::Real wz = dvdx - dudy;
+            v2(i,j,k) = wx*wx + wy*wy + wz*wz;
         });
     }
-    enstrophy = amrex::Real(0.5) * amrex::MultiFab::Dot(curl, 0, curl.nComp(), 0);
+
+    const amrex::Real inv_dt2 = amrex::Real(1.0) / (dt_phys * dt_phys);
+    amrex::Real g2_sum = grad_sq.sum(0);
+    amrex::Real v2_sum = vort_sq.sum(0);
+
+    amrex::Real g2_phys_mean = g2_sum * inv_dt2/ncell;
+    amrex::Real v2_phys_mean = v2_sum * inv_dt2/ncell;
+
+    d.dissipation = nu_phys * g2_phys_mean;
+    d.enstrophy = amrex::Real(0.5) * v2_phys_mean;
 }
 
 } // namespace
@@ -95,53 +116,114 @@ int main(int argc, char* argv[])
         std::unique_ptr<ISimulation> sim = makeSimulation(params);
         sim->initialize();
 
-        const amrex::Real tau = sim->units().relaxationTime();
-        const amrex::Real nu  = (tau - amrex::Real(0.5)) * tgv3d::kCs2;
-
-        const int max_step = params.maxStep();
+        const UnitConverter& units = sim->units();
+        const amrex::Real tau = units.relaxationTime();
+        const amrex::Real nu_lat = (tau - amrex::Real(0.5)) * tgv3d::kCs2;
+        const amrex::Real nu_phys = units.toPhysicalViscosity(nu_lat);
         const amrex::Geometry& geom = sim->geom();
 
-        std::vector<amrex::Real> times, ke_hist, enstrophy_hist;
-
-        for (int step = 0; step <= max_step; ++step) {
-            sim->advanceFused(step);
-            sim->writeOutput(step);
-
-            if (step % params.plotInterval() == 0) {
-                amrex::Real ke, enstrophy;
-                // calc ke and enstrophy
-                computeEnergyAndEnstrophy(sim->vel(), geom, ke, enstrophy);
-                ke_hist.push_back(ke);
-                enstrophy_hist.push_back(enstrophy);
-
-                times.push_back(sim->time());
-                amrex::Print() << "At Time=" << sim->time()
-                               << ": k=" << ke << " eps=" << enstrophy << "\n";
+        int max_step = params.maxStep();
+        const amrex::Real stop_time_phys = params.stopTime();
+        if (stop_time_phys > 0.0) {
+            int steps_from_time = static_cast<int>(std::ceil(units.toLatticeTime(stop_time_phys)));
+            if (max_step <= 0 || steps_from_time < max_step) {
+                max_step = steps_from_time;
+                amrex::Print() << "Using stop_time=" << stop_time_phys
+                               << " => max_step=" << max_step
+                               << " (dt=" << units.dt() << " dx=" << units.dx() << ")\n";
             }
         }
 
-        // trapezoidal integral of nu*enstrophy over the recorded times
-        amrex::Real dissipation_integral_lat = amrex::Real(0.0);
-        for (std::size_t n = 1; n < times.size(); ++n) {
-            const amrex::Real dt = times[n] - times[n - 1];
-            dissipation_integral_lat += amrex::Real(0.5) * dt* (enstrophy_hist[n] + enstrophy_hist[n - 1]);
+        int plot_int = params.plotInterval();
+        int sample_int=-1; 
+        amrex::ParmParse ppbench("bench");
+        ppbench.query("sample_int", sample_int);
+
+        if (plot_int <= 0) plot_int = max_step;
+        if (sample_int <= 0) sample_int = plot_int;
+
+        std::vector<Diagnostics> hist;
+        hist.reserve(max_step / std::max(1, plot_int) + 2);
+
+        std::ofstream csv("tgv_diagnostics.csv", std::ios::out);
+        csv << "step,time_phys,time,Ek,dissipation,enstrophy\n";
+
+        auto doSample = [&](int step, bool refresh_macro = true) {
+            // updateMacroscopic(step) streams m_fin first, so at t=0 it would return a
+            // lattice-smoothed IC; the t=0 sample reads m_vel as set by initData.
+            if (refresh_macro) sim->updateMacroscopic(step);
+            Diagnostics d;
+            d.step = step;
+            d.time_phys = units.toPhysicalTime(sim->time());
+            computeDiagnostics(sim->vel(), geom, units, d);
+            hist.push_back(d);
+
+            const amrex::Real t_bench = d.time_phys;
+            const amrex::Real ek_bench = d.ke;
+            const amrex::Real eps_bench = d.dissipation;
+            const amrex::Real enst_bench = d.enstrophy;
+
+            amrex::Print() << "sample step=" << step << " t_phys=" << d.time_phys
+                           << " t_bench=" << t_bench
+                           << " Ek=" << d.ke << " eps=" << d.dissipation
+                           << " enstrophy=" << d.enstrophy << "\n";
+            csv << d.step << "," << d.time_phys << "," << t_bench << ","
+                << ek_bench << "," << eps_bench << "," << enst_bench << "\n";
+            csv.flush();
+        };
+
+        // Initial sample at t=0 before any advance
+        doSample(0, false);
+
+        for (int step = 0; step <= max_step; ++step) {
+            sim->advance();
+            sim->writeOutput(step);
+
+            // Sample at plot interval (avoid duplicating the t=0 sample)
+            if (step > 0 && (step % sample_int == 0)) {
+                doSample(step);
+            }
+            if (stop_time_phys > 0.0 && units.toPhysicalTime(sim->time()) >= stop_time_phys) {
+                if (step % plot_int != 0) doSample(step);
+                break;
+            }
         }
+        csv.close();
 
-        // multiply by factor to return right relation
-        dissipation_integral_lat*=amrex::Real(2) * nu ;
+        if (hist.size() < 2) {
+            amrex::Print() << "WARNING: fewer than 2 diagnostic samples; "
+                              "reduce amr.plot_int for a finer time history.\n";
+        } else {
+            amrex::Real diss_int = 0.0;
+            for (std::size_t n = 1; n < hist.size(); ++n) {
+                amrex::Real dt = hist[n].time_phys - hist[n-1].time_phys;
+                diss_int += 0.5 * dt * (hist[n].dissipation + hist[n-1].dissipation);
+            }
+            amrex::Real ke_drop = hist.front().ke - hist.back().ke;
+            amrex::Real denom = std::max(std::abs(ke_drop), amrex::Real(1e-30));
+            amrex::Real rel_err = std::abs(ke_drop - diss_int) / denom;
 
-        const amrex::Real ke_drop_lat = ke_hist.front() - ke_hist.back();
-        // revert to physical units
-        amrex::Real dissipation_integral = sim->units().toPhysicalEnergy(dissipation_integral_lat);
-        amrex::Real ke_drop = sim->units().toPhysicalEnergy(ke_drop_lat);
+            amrex::Print() << "\n--- Energy balance (physical units) ---\n"
+                           << "KE(0)=" << hist.front().ke
+                           << " KE(T)=" << hist.back().ke
+                           << " KE(0)-KE(T)=" << ke_drop << "\n"
+                           << "int eps dt=" << diss_int
+                           << " rel_err=" << rel_err << "\n";
 
-        const amrex::Real denom = std::max(std::abs(ke_drop), amrex::Real(1e-30));
-        const amrex::Real rel_err = std::abs(ke_drop - dissipation_integral) / denom;
+            const amrex::Real tol = 0.10;
+            if (rel_err < tol) {
+                amrex::Print() << "PASS energy balance (tol " << tol << ")\n";
+            } else {
+                amrex::Print() << "FAIL energy balance: rel_err " << rel_err
+                               << " exceeds tol " << tol
+                               << " (try smaller amr.plot_int or larger N)\n";
+            }
 
-        amrex::Print() << "KE(0)=" << ke_hist.front() << " KE(T)=" << ke_hist.back()
-                       << " dissipated=" << ke_drop
-                       << " nu*integral(|curl(u)|^2)dt=" << dissipation_integral
-                       << " relative error=" << rel_err << "\n";
+            amrex::Print() << "\nDiagnostics written to tgv_diagnostics.csv ("
+                           << hist.size() << " samples).\n"
+                           << "For DNS comparison run:\n"
+                           << "  python3 analyze_tgv.py --run-dir . --benchmark TGV_Re1600.dat\n";
+        }
     }
     amrex::Finalize();
     return 0;

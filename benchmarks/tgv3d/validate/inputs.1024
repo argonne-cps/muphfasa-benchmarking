@@ -1,0 +1,62 @@
+# Validation: 3-D Taylor-Green vortex at Re=1600 vs. Dairay et al. 2017 DNS (TGV_Re1600.dat).
+#
+# Triply-periodic NxNxN domain, one TGV wavelength per side (see ../Tgv3dAnalytic.H).
+# Initial condition (Taylor & Green 1937; Brachet et al. 1983):
+#   u =  U0 sin(kx) cos(ky) cos(kz)
+#   v = -U0 cos(kx) sin(ky) cos(kz)
+#   w =  0
+#
+# Units: the DNS reference uses domain (2pi)^3, k=1, U0=1, nu=1/1600, so the
+# simulation is run directly in those units and results compare 1:1 to
+# TGV_Re1600.dat (t=0: Ek=0.125, <(du/dx)^2>=0.125).
+#   domain length  = units.ref_length = 2pi   (muphfasa sets dx = ref_length/N,
+#                                              and InitData uses k = 2pi/(N dx) = 1)
+#   units.Re       = U0 * ref_length / nu = 2pi * 1600
+# NOTE: units.Re is based on ref_length, so it is 2pi*Re_bench, NOT 1600.
+#
+
+# ── Grid ──────────────────────────────────────────────────────────────────
+grid.ncells       = 1024 1024 1024 # cubic: one TGV wavelength per side
+grid.max_grid_size = 64           # chop into 64^3 boxes for MPI distribution
+grid.n_ghost      = 1
+
+# ── Simulation ────────────────────────────────────────────────────────────
+# Benchmark time t=20 in L_ref/U0 units. With L_ref=2pi, U0=1, t_phys=20.
+# Lattice: dx=L_ref/N=2pi/1024, dt=u_lat*dx/U0, steps = t_phys/dt.
+# At u_lat=0.08, dt=3e-4, steps=62000.
+sim.max_step     = 35000
+sim.stop_time    = 20.0
+
+# ── LBM ──────────────────────────────────────────────────────────────────
+lbm.lattice_type = D3Q19
+# Pin u_lat (lattice ref velocity). At Re=1600, tau=0.5+nu*u_lat/(U*dx*cs2)
+# with nu=1/1600
+lbm.u_lat        = 0.08
+
+# ── Physical units ───────────────────────────────────────────────────────
+units.ref_length    = 1.0
+units.ref_velocity  = 1.0
+units.ref_density   = 1.0
+units.Re            = 1600 # ->  nu = 1/1600
+
+# ── Boundary conditions ──────────────────────────────────────────────────
+bc.lo_type = Periodic  Periodic  Periodic
+bc.hi_type = Periodic  Periodic  Periodic
+
+# ── Geometry ─────────────────────────────────────────────────────────────
+geometry.prob_lo    = 0.0  0.0  0.0
+geometry.prob_hi    = 6.283185307179586  6.283185307179586  6.283185307179586
+
+# ── Output ───────────────────────────────────────────────────────────────
+# Plotfiles contain density + velocity in physical units.
+# amr.plot_int sets both I/O and the in-situ diagnostic sampling cadence.
+# For N=512, 100 plotfiles are ~300 GB; increase plot_int if disk-limited.
+# The in-situ CSV (tgv_diagnostics.csv) is tiny and always written.
+amr.plot_int        = -1
+amr.chk_int         = -1
+amr.plot_file       = plt
+amr.check_file      = chk
+bench.sample_int    = 400
+
+# save in single precision to save space
+amrex.use_gpu_aware_mpi=1

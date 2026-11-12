@@ -62,7 +62,12 @@ def _run_batch_generate(args, dim: int, lattice: str):
         print(f"batch generator not found: {gen}", file=sys.stderr)
         sys.exit(1)
 
-    pairs = list(zip(args.sizes, itertools.islice(itertools.cycle(args.nodes), len(args.sizes))))
+    # if strong scaling then match len size to nodes
+    if args.mode == 'strong':
+        sizes = [args.sizes[0]]*len(args.nodes)
+    else:
+        sizes = args.sizes
+    pairs = list(zip(sizes, itertools.islice(itertools.cycle(args.nodes), len(sizes))))
     print(f"Batch mode: {args.case} dim={dim} lattice={lattice} ppn={args.ppn} queue={args.queue or 'auto'}")
     print(f"  sweep pairs (size ↔ nodes): {pairs}")
     if args.max_grid_size != 32:
@@ -93,6 +98,8 @@ def _run_batch_generate(args, dim: int, lattice: str):
             cmd += ["--steps", str(args.steps)]
         if args.flare_root:
             cmd += ["--flare-root", args.flare_root]
+        if args.sunspot:
+            cmd += ["--sunspot"]
         if args.save_checkpoint:
             cmd += ["--save-checkpoint"]
         if args.outdir:
@@ -110,11 +117,8 @@ def _run_batch_generate(args, dim: int, lattice: str):
     if not args.dry_run:
         print(f"\nBatch scripts ready for {len(written)} sweep point(s). Submit with e.g.:")
         for size, nodes in written:
-            tag = ""
-            if args.stages and set(args.stages) != {"compiling", "validating", "performance"}:
-                tag = "_" + "_".join(sorted(args.stages, key=lambda s: ["compiling", "validating", "performance"].index(s)))
-            print(f"  qsub batch/generated/{args.case}_{size}_{nodes}nodes{tag}.sh")
-        print(f"  or: qsub batch/generated/{args.case}_*.sh  (all)")
+            tag = "_" + "_".join(sorted(args.stages, key=lambda s: ["compiling", "validating", "performance"].index(s)))
+            print(f"  qsub batch/generated/{args.case}_{size}_{lattice}_{nodes}nodes{tag}.sh")
     return 0
 
 
@@ -148,6 +152,7 @@ def main():
     parser.add_argument("--warmup", type=int, default=None, help="warmup steps (default per dim: 2D=100, 3D=50)")
     parser.add_argument("--steps", type=int, default=None, help="timed steps (default per dim: 2D=2000, 3D=500)")
     parser.add_argument("--flare-root", type=str, default=None, help="flare run root")
+    parser.add_argument("--sunspot", action="store_true", default=False, help="target Sunspot (queue=workq, project=catalyst, filesystems=home:tegu)")
     parser.add_argument("--save-checkpoint", action="store_true", default=False, help="save final checkpoint (chk<max_step>) — batch mode passes bench.save_checkpoint=1; local mode passes bench.save_checkpoint=1 override")
     parser.add_argument("--outdir", type=Path, default=None, help="output dir (default batch/generated/)")
     parser.add_argument("--dry-run", action="store_true", help="print what would be generated without writing (batch mode)")
@@ -171,8 +176,14 @@ def main():
         build_bench(args.case, dim, use_mpi=True)
 
     results = []
-    nodes_cycle = itertools.islice(itertools.cycle(args.nodes), len(args.sizes))
-    for size, nodes in zip(args.sizes, nodes_cycle):
+
+    # if strong scaling then match len size to nodes
+    if args.mode == 'strong':
+        sizes = [args.sizes[0]]*len(args.nodes)
+    else:
+        sizes = args.sizes
+    nodes_cycle = itertools.islice(itertools.cycle(args.nodes), len(sizes))
+    for size, nodes in zip(sizes, nodes_cycle):
         nprocs = max(1, nodes) * max(1, args.ppn)
         # Build overrides: grid.ncells and lattice. max_grid_size is fixed and
         # independent of the domain size so multi-rank runs actually get more

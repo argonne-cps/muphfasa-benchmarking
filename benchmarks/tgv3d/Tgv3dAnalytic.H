@@ -54,11 +54,10 @@ inline amrex::Real waveNumber(int N) noexcept {
 }
 
 inline void initUVW(amrex::Real x, amrex::Real y, amrex::Real z,
-                     amrex::Real k, amrex::Real u0, amrex::Real nu, amrex::Real t,
-                     amrex::Real& u, amrex::Real& v, amrex::Real& w) noexcept {
-    const amrex::Real decay = std::exp(-amrex::Real(2.0) * nu * k * k * t);
-    u =  u0 * std::sin(k*x) * std::cos(k*y) * std::cos(k*z) * decay;
-    v = -u0 * std::cos(k*x) * std::sin(k*y) * std::cos(k*z) * decay;
+                     amrex::Real k, amrex::Real u0, amrex::Real& u, 
+                     amrex::Real& v, amrex::Real& w) noexcept {
+    u =  u0 * std::sin(k*x) * std::cos(k*y) * std::cos(k*z);
+    v = -u0 * std::cos(k*x) * std::sin(k*y) * std::cos(k*z);
     w = amrex::Real(0.0);
 }
 
