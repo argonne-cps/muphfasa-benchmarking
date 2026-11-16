@@ -60,6 +60,10 @@ qsub batch/generated/lid2d_2048_2nodes.sh
 # Sweep: 2 and 4 nodes with 2048→4096, weak scaling (product of --nodes × --sizes)
 python3 batch/generate.py --case lid2d --nodes 2 4 --sizes 2048 4096
 # → batch/generated/lid2d_2048_2nodes.sh, lid2d_2048_4nodes.sh, lid2d_4096_2nodes.sh, ...
+# and prints a loop that submits them one after another (see "Submitting a sweep")
+
+# Strong scaling of a 1024³ TGV on 1, 2, 4, 8 nodes (perf only)
+python3 run_scaling.py --case tgv3d --mode strong --sizes 1024 --nodes 1 2 4 8 --stages performance
 
 # 3D example with lattice override
 python3 batch/generate.py --case lid3d --nodes 4 --size 256 --lattice D3Q19
@@ -77,6 +81,53 @@ python3 run_scaling.py --case lid2d --sizes 1024 2048 4096 --nodes 1 2 4 --dry-r
 
 Generated scripts live in `batch/generated/` (do not hand-edit — re-generate). Each stages compiles in the home checkout, then stages the exe + inputs to `/flare/<project>/$USER/muphfasa-benchmarking-runs/<case>_<size>_<nodes>nodes_<jobid>` and runs there (flare is required for `filesystems=flare`; the job `cd`s to `$PBS_O_WORKDIR` first). See `skills/aurora-overview.md` for queues (`debug` 1–2, `debug-scaling` 2–256, `prod` 256+), `qstat -u $USER` before submit, GPU binding (`gpu_tile_compact.sh` / `gpu_dev_compact.sh`), and proxy `proxy.alcf.anl.gov:3128`.
 
+### Submitting a sweep
+
+`generate.py` / `run_scaling.py` print the submission loop for everything they generated. Each job goes in with `qsub -W block=true`, which does not return until that job finishes, so the sweep runs sequentially:
+
+```sh
+for f in batch/generated/tgv3d_1024_D3Q19_{1,2,4,8}nodes_performance.sh; do
+  echo "[$(date)] submitting $f"
+  qsub -W block=true "$f"
+  echo "[$(date)] finished $f"
+done
+echo "sweep done"
+```
+
+The script list uses brace expansion over whichever of size / nodes vary. When size and nodes are paired (weak scaling) the files are listed explicitly instead. Run the loop under `tmux`/`screen` (or `nohup`), since it lives as long as the sweep.
+
+### Checking settings with `input_info`
+
+`--input-info` (on `run_scaling.py`) runs muphfasa's `input_info` on the benchmark's `inputs.bench` with the same settings the run would use (grid, lattice, `bench.*`, `amr.restart`). It is most useful with `--dry-run`, but works without it and with `--local`:
+
+```sh
+make -C external/muphfasa/util/input_info DIM=3        # once per dimension (DIM=2 for 2-D cases)
+python3 run_scaling.py --case tgv3d --mode strong --sizes 1024 --nodes 1 2 4 8 \
+    --stages performance --lattice D3Q27 --dry-run --input-info
+```
+
+- The full report (grid, dt / tau / u_lat, step count, disk use, warnings with suggested fixes) is printed for the **first** sweep point only; other sizes only get their warnings.
+- Every point gets a memory line. In batch mode it compares the estimate with the GPU memory of the requested nodes (6 PVC x 128 GiB = 768 GiB/node) and warns above 80% (or when it does not fit), with the node count needed. The estimate covers the distributions, rho and u only, so the 80% leaves room for MPI buffers and the arena.
+- A restart checkpoint that exists on this machine is checked against the run's domain and lattice (the same check the solver aborts on). One that only exists on the cluster is skipped with a note.
+- `bench.*` keys are read by the benchmark driver, not the solver, so `input_info` can't judge them. `--input-info` therefore checks them itself against the keys `benchmarks/bench.cpp` (and the case's `main.cpp`) actually read, derived from the source, and warns about any other `bench.*` key with a did-you-mean (`bench.warmpu is not read ... did you mean bench.warmup?`). This check runs even when `input_info` isn't built. Unknown `bench.*` keys also stay listed in the tool's "never reads" note.
+- If `input_info` isn't built (it is looked for in `external/muphfasa/util/input_info`, or give `--input-info-exe`), a warning with the `make` command is printed and the run goes on. Problems are only reported, never fatal.
+
+### Run records
+
+Every run directory is self-describing. The first lines of `run.log` hold the exact `mpiexec ...` command (plus case/size/nodes/steps/restart), and the run directory's `inputs.bench` is the stock file with the run settings (`grid.ncells`, `lbm.lattice_type`, `bench.warmup`, `bench.steps`, `bench.save_checkpoint`, `amr.restart`, ...) written at the end, so `./bench*.ex inputs.bench` alone reproduces the run — no command-line overrides are used. `run_scaling.py --local` does the same in `scaling_<case>_<size>_<nodes>/`.
+
+### Restarting from a checkpoint
+
+```sh
+# 1. run once and keep the final state:  chk<N> appears in the run directory
+python3 run_scaling.py --case tgv3d --sizes 1024 --nodes 4 --stages performance --save-checkpoint
+# 2. time further steps starting from that state (e.g. an evolved, turbulent field)
+python3 run_scaling.py --case tgv3d --sizes 1024 --nodes 4 --stages performance \
+    --restart /flare/<project>/$USER/muphfasa-benchmarking-runs/tgv3d_1024_4nodes_<jobid>/chk<N>
+```
+
+`--restart` (both `run_scaling.py` and `generate.py`; `amr.restart` in the solver) applies to the performance stage. `--warmup`/`--steps` are counted from the checkpoint's step (`bench.warmup` untimed + `bench.steps` timed steps after it), and a `--save-checkpoint` run from a restart is labelled by the total steps advanced. The checkpoint must have the same domain size as `--size`; rank count and `max_grid_size` may differ. Restarted scripts get a `_restart` suffix so they don't overwrite the fresh-run scripts. The checkpoint is checked on the compute node before `mpiexec` starts.
+
 Local `run_scaling.py --local` still runs directly via `helper.run_bench` for quick dev — see Quick Start above and `benchmarks/README.md`. By default (no flag) it delegates to `batch/generate.py`.
 
 ## Layout
@@ -85,7 +136,9 @@ Local `run_scaling.py --local` still runs directly via `helper.run_bench` for qu
 muphfasa-benchmarking/
   external/muphfasa/          # submodule, pinned SHA (update: git submodule update --remote)
   benchmarks/
-    bench.cpp                 # generic timed driver (no analytic plotfiles)
+    bench.cpp, bench.H        # generic timed driver (no analytic plotfiles); do_bench(params)
+                              # every benchmark (and validate/) has its own main.cpp that overrides
+                              # src/main.cpp of the solver (same-named local file wins over VPATH)
     tgv2d/   GNUmakefile, inputs.bench, InitData.cpp (TGV, overrides src/Simulation/InitData.cpp)
     tgv3d/   GNUmakefile, inputs.bench, InitData.cpp, Tgv3dAnalytic.H (3-D TGV, borrows tgv2d+beltrami3d)
     lid2d/   GNUmakefile, inputs.bench (closed 2-D lid-driven cavity, walls on all four sides)
@@ -118,7 +171,7 @@ solver's internal state stays in lattice units; only I/O is converted. Any `Init
 override (`tgv2d`, `beltrami3d`) takes `const UnitConverter&` and must convert its IC
 amplitude from the physical `units.ref_velocity` via `units.toLatticeVelocity()` — see
 either file for the pattern. A correctness-check driver that writes its own analytic
-plotfile (like `beltrami3d/validate/test_beltrami3d.cpp`) must likewise convert its
+plotfile (like `beltrami3d/validate/main.cpp`) must likewise convert its
 analytic solution to physical units before `fcompare`, or the comparison will be
 comparing physical sim output against a lattice-unit analytic field and report bogus
 errors.
@@ -130,7 +183,7 @@ errors.
   - `tgv3d`: `benchmarks/tgv3d/validate/` is not an `fcompare`-vs-analytic test like the other
     two — the classic 3-D TGV IC has no closed-form solution for t>0 (vortex stretching moves
     energy into other modes, unlike the 2-D TGV or the Beltrami flow, see `Tgv3dAnalytic.H`), so
-    there's no analytic field to diff against. Instead `test_tgv3d.cpp` checks the **global
+    there's no analytic field to diff against. Instead `tgv3d/validate/main.cpp` checks the **global
     kinetic-energy balance** `KE(0)-KE(T) = nu*integral(|curl(u)|^2)dt`, which is exact for
     incompressible Navier-Stokes at any Re/amplitude/duration regardless of vortex stretching —
     a genuine correctness check on the solver, not just a sanity check on the IC wiring.
