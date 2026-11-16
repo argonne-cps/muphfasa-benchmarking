@@ -101,6 +101,7 @@ BUILD_COMP = "intel"
 BUILD_USE_MPI = "TRUE"
 BUILD_USE_SYCL = "TRUE"
 
+DEFAULT_WALLTIME = "00:30:00"
 DEFAULT_WARMUP = {2: 100, 3: 50}
 DEFAULT_STEPS  = {2: 2000, 3: 500}
 
@@ -354,7 +355,8 @@ def parse_args():
     p.add_argument("--lattice", type=str, default=None, help="lattice, e.g. D2Q9 (default per case)")
     p.add_argument("--ppn", type=int, default=12, help="ranks per node (default 12 = 6 GPUs x 2 tiles)")
     p.add_argument("--queue", type=str, default=None, help="PBS queue (default: auto from nodes — debug 1-2, debug-scaling 2-256, prod 256+)")
-    p.add_argument("--walltime", type=str, default="00:30:00")
+    p.add_argument("--walltime", type=str, default=DEFAULT_WALLTIME,
+                   help="PBS walltime, [[HH:]MM:]SS (default %(default)s); checked against the queue's limits")
     p.add_argument("--project", type=str, default=None, help="ALCF project allocation (default: muphfasa on Aurora, catalyst on Sunspot)")
     p.add_argument("--sunspot", action="store_true", default=False, help="target Sunspot (sets defaults: queue=workq, project=catalyst, filesystems=home:tegu, FLARE_ROOT on /lus/flare/projects/catalyst)")
     p.add_argument("--stages", nargs="+", choices=ALL_STAGES, default=ALL_STAGES,
@@ -373,18 +375,44 @@ def parse_args():
     p.add_argument("--product", action=argparse.BooleanOptionalAction, default=True,
                    help="cartesian product of --cases x --nodes x --sizes (default true); --no-product zips them")
     p.add_argument("--dry-run", action="store_true", help="print paths without writing")
+    p.add_argument("--no-queue-check", action="store_true",
+                   help="skip the check of nodes / walltime against the Aurora queue limits (QUEUE_LIMITS)")
     p.add_argument("--no-submit-hint", action="store_true",
                    help="do not print the qsub command(s) at the end (used by run_scaling.py, which prints one for the whole sweep)")
     return p.parse_args()
 
 
+# ── Aurora queue definitions ────────────────────────────────────────────────
+# From https://docs.alcf.anl.gov/aurora/running-jobs-aurora/#queues (copied 2026-11-16).
+# Edit here when ALCF changes them; generate.py and run_scaling.py both check against this table.
+#   nodes / walltime: (min, max) accepted by the queue (walltime in seconds)
+#   routes: a routing queue; the real limits are those of the sub-queue the node count falls in
+#   one_job: at most 1 job running/accruing/queued per user (so sweeps must be submitted one at a time)
+_MIN, _HR, _DAY = 60, 3600, 86400
 QUEUE_LIMITS = {
-    "debug": (1, 2),
-    "debug-scaling": (2, 256),
-    "prod": (256, 10624),
-    "capacity": (1, 16),
-    "visualization": (1, 32),
+    "debug":         {"nodes": (1, 2),       "walltime": (5 * _MIN, 1 * _HR),  "one_job": True,
+                      "note": "64 nodes, non-exclusive"},
+    "debug-scaling": {"nodes": (2, 256),     "walltime": (5 * _MIN, 1 * _HR),  "one_job": True},
+    "prod":          {"nodes": (256, 10624), "walltime": (5 * _MIN, 24 * _HR),
+                      "routes": ("small", "medium", "large")},
+    "capacity":      {"nodes": (1, 16),      "walltime": (5 * _MIN, 7 * _DAY),
+                      "note": "max 512 nodes across all jobs; max 5 jobs queued or running, 2 running per user"},
+    "visualization": {"nodes": (1, 32),      "walltime": (5 * _MIN, 8 * _HR),
+                      "note": "by request only; non-exclusive nodes"},
+    # sub-queues of prod (also accepted directly with --queue)
+    "small":  {"nodes": (256, 1024),   "walltime": (5 * _MIN, 12 * _HR)},
+    "medium": {"nodes": (1025, 1999),  "walltime": (5 * _MIN, 18 * _HR)},
+    "large":  {"nodes": (2000, 10624), "walltime": (5 * _MIN, 24 * _HR)},
+    "backfill-small":  {"nodes": (256, 1024),   "walltime": (5 * _MIN, 12 * _HR),
+                        "note": "low priority, negative project balance"},
+    "backfill-medium": {"nodes": (1025, 1999),  "walltime": (5 * _MIN, 18 * _HR),
+                        "note": "low priority, negative project balance"},
+    "backfill-large":  {"nodes": (2000, 10624), "walltime": (5 * _MIN, 24 * _HR),
+                        "note": "low priority, negative project balance; max node count may be lower in practice"},
 }
+# Queues offered as alternatives when a request does not fit (no by-request / low-priority ones).
+_SUGGEST_QUEUES = ("debug", "debug-scaling", "prod", "capacity")
+
 
 def auto_queue(nodes: int) -> str:
     if nodes <= 2:
@@ -393,17 +421,108 @@ def auto_queue(nodes: int) -> str:
         return "debug-scaling"
     return "prod"
 
-def validate_queue(queue: str, nodes: int):
+
+def parse_walltime(value) -> int:
+    """PBS walltime ([[HH:]MM:]SS, or plain seconds) -> seconds. Raises ValueError if malformed."""
+    parts = str(value).strip().split(":")
+    if not 1 <= len(parts) <= 3 or not all(p.isdigit() for p in parts):
+        raise ValueError(f"walltime {value!r} is not [[HH:]MM:]SS")
+    sec = 0
+    for p in parts:
+        sec = sec * 60 + int(p)
+    return sec
+
+
+def fmt_walltime(seconds: int) -> str:
+    h, rem = divmod(int(seconds), 3600)
+    m, sec = divmod(rem, 60)
+    return f"{h}:{m:02d}:{sec:02d}"
+
+
+def _limits_for(queue: str, nodes: int):
+    """(nodes range, walltime range, routed-to sub-queue or None) for queue at this node count.
+
+    A routing queue (prod) accepts its own node range, but its walltime cap is the sub-queue's."""
+    spec = QUEUE_LIMITS[queue]
+    walltime, routed = spec["walltime"], None
+    for sub in spec.get("routes", ()):
+        lo, hi = QUEUE_LIMITS[sub]["nodes"]
+        if lo <= nodes <= hi:
+            walltime, routed = QUEUE_LIMITS[sub]["walltime"], sub
+    return spec["nodes"], walltime, routed
+
+
+def _fit_problems(queue: str, nodes: int, seconds: int) -> list:
+    (n_lo, n_hi), (w_lo, w_hi), routed = _limits_for(queue, nodes)
+    out = []
+    if not n_lo <= nodes <= n_hi:
+        out.append(f"{nodes} node(s) is outside the queue's {n_lo}-{n_hi} nodes")
+    if seconds < w_lo:
+        out.append(f"walltime {fmt_walltime(seconds)} is below the {fmt_walltime(w_lo)} minimum")
+    elif seconds > w_hi:
+        via = f" for {nodes} nodes (prod routes to '{routed}')" if routed else ""
+        out.append(f"walltime {fmt_walltime(seconds)} is above the {fmt_walltime(w_hi)} maximum{via}")
+    return out
+
+
+def queue_violations(queue: str, nodes: int, walltime) -> list:
+    """Ways a request (nodes, PBS walltime) breaks the queue's definition; [] if it fits.
+
+    Queues not in QUEUE_LIMITS are not checked. Each message names the queue; when something is
+    violated the last message lists the standard queues that would accept the request."""
     if queue not in QUEUE_LIMITS:
-        return
-    lo, hi = QUEUE_LIMITS[queue]
-    if not (lo <= nodes <= hi):
-        suggestion = auto_queue(nodes)
-        raise SystemExit(
-            f"queue '{queue}' requires {lo}-{hi} nodes, but --nodes={nodes} was requested. "
-            f"Use -q {suggestion} for {nodes} nodes (see https://docs.alcf.anl.gov/aurora/running-jobs-aurora/#queues) "
-            f"or pass --queue {suggestion} explicitly. prod requires ≥256 nodes."
-        )
+        return []
+    try:
+        seconds = parse_walltime(walltime)
+    except ValueError as e:
+        return [f"queue '{queue}': {e}"]
+    problems = _fit_problems(queue, nodes, seconds)
+    if not problems:
+        return []
+    (n_lo, n_hi), (w_lo, w_hi), _ = _limits_for(queue, nodes)
+    msgs = [f"queue '{queue}' (nodes {n_lo}-{n_hi}, walltime {fmt_walltime(w_lo)}-{fmt_walltime(w_hi)}): {p}"
+            for p in problems]
+    alts = [q for q in _SUGGEST_QUEUES if q != queue and not _fit_problems(q, nodes, seconds)]
+    if alts:
+        msgs.append(f"queues that accept {nodes} node(s) for {fmt_walltime(seconds)}: " + ", ".join(alts))
+    else:
+        msgs.append(f"no standard Aurora queue accepts {nodes} node(s) for {fmt_walltime(seconds)}; "
+                    "reduce the node count or the walltime")
+    return msgs
+
+
+def validate_queue_requests(requests, walltime):
+    """Exit with every violation found. requests: [(queue, nodes, label), ...] (label for messages)."""
+    errors, unknown, seen = [], set(), set()
+    for queue, nodes, label in requests:
+        if (queue, nodes) in seen:
+            continue
+        seen.add((queue, nodes))
+        if queue not in QUEUE_LIMITS:
+            unknown.add(queue)
+            continue
+        for msg in queue_violations(queue, nodes, walltime):
+            errors.append(f"  {label}: {msg}")
+    if unknown:
+        print(f"note: queue(s) {', '.join(sorted(unknown))} are not in QUEUE_LIMITS; nodes/walltime not checked",
+              file=sys.stderr)
+    if errors:
+        raise SystemExit("queue limits violated (https://docs.alcf.anl.gov/aurora/running-jobs-aurora/#queues; "
+                         "pass --no-queue-check to skip):\n" + "\n".join(errors))
+
+
+def queue_notes(queues, n_jobs: int) -> list:
+    """Reminders about per-user job limits for a sweep of n_jobs submitted to these queues."""
+    notes = []
+    for q in dict.fromkeys(queues):
+        spec = QUEUE_LIMITS.get(q, {})
+        if spec.get("one_job") and n_jobs > 1:
+            notes.append(f"queue '{q}' allows 1 job running/accruing/queued per user: submit one at a time "
+                         "(the loop below waits for each job)")
+        if q == "capacity" and n_jobs > 5:
+            notes.append("queue 'capacity' allows 5 jobs queued or running (2 running) per user: "
+                         "submit one at a time (the loop below waits for each job)")
+    return notes
 
 
 def name_tail(stages_sorted, save_checkpoint, restart) -> str:
@@ -497,11 +616,19 @@ def main():
             return lst
         combos = list(zip(broadcast(cases), broadcast(nodes_list), broadcast(sizes)))
 
+    is_sunspot = args.sunspot
+    if not is_sunspot and not args.no_queue_check:
+        # check every request before writing anything, so a bad sweep leaves no partial output
+        validate_queue_requests(
+            [(args.queue or auto_queue(nodes), nodes, f"{case} size={size} nodes={nodes}")
+             for case, nodes, size in combos],
+            args.walltime)
+
     args.outdir.mkdir(parents=True, exist_ok=True)
     written = []
     records = []
+    queues_used = []
 
-    is_sunspot = args.sunspot
     default_project = "catalyst" if is_sunspot else "muphfasa"
     effective_project = args.project or default_project
     default_filesystems = "home:tegu" if is_sunspot else "flare"
@@ -511,7 +638,6 @@ def main():
             queue = args.queue or "workq"
         else:
             queue = args.queue or auto_queue(nodes)
-            validate_queue(queue, nodes)
         dim = CASE_DIM[case]
         lattice = args.lattice or CASE_LATTICE[case]
         if size is None:
@@ -571,6 +697,7 @@ def main():
             content += "\n"
 
         records.append((case, size, lattice, nodes))
+        queues_used.append(queue)
         if args.dry_run:
             print(f"[dry-run] would write {out_rel} stages={stages_str}")
             continue
@@ -581,8 +708,11 @@ def main():
 
     if records and not args.no_submit_hint:
         outdir_rel = os.path.relpath(args.outdir, REPO_ROOT)
-        print("\nSubmit with (one at a time; each qsub blocks until its job finishes):" if len(records) > 1
-              else "\nSubmit with:")
+        print()
+        for note in queue_notes(queues_used, len(records)):
+            print(f"note: {note}")
+        print("Submit with (one at a time; each qsub blocks until its job finishes):" if len(records) > 1
+              else "Submit with:")
         print(submit_hint(records, tail, outdir_rel))
 
 if __name__ == "__main__":

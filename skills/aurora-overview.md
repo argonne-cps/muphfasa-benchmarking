@@ -49,8 +49,11 @@ System overview for agents planning work on Aurora. Provides hardware specs, que
 |-------|-------|----------|-------|
 | debug | 1-2 | 5min-1hr | Max 1 job/user, non-exclusive nodes |
 | debug-scaling | 2-256 | 5min-1hr | Max 1 job/user |
-| prod (routes to small/medium/large) | 256-10,624 | 5min-24hr | small: 256-1024/12h, medium: 1025-1919/18h, large: 1920-10624/24h |
-| capacity | 1-16 | 5min-7d | Max 128 nodes total, max 5 queued, max 2 running |
+| prod (routes to small/medium/large) | 256-10,624 | 5min-24hr | small: 256-1024/12h, medium: 1025-1999/18h, large: 2000-10624/24h; backfill-small/medium/large have the same limits (low priority, negative project balance) |
+| capacity | 1-16 | 5min-7d | Max 512 nodes across all jobs, max 5 jobs queued or running, 2 running per user |
+| visualization | 1-32 | 5min-8hr | By request only; non-exclusive nodes |
+
+(Checked in code by `QUEUE_LIMITS` in `batch/generate.py`; table from https://docs.alcf.anl.gov/aurora/running-jobs-aurora/#queues, 2026-11-16.)
 
 - Global queue limits: 10 jobs running/accruing per project, 100 queued.
 - Job submission requires filesystem flag: `-l filesystems=flare` or `-l filesystems=daos_user`.

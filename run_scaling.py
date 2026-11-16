@@ -21,6 +21,13 @@ Restart the timed region from a checkpoint (e.g. one written by --save-checkpoin
       --restart /flare/proj/$USER/muphfasa-benchmarking-runs/tgv3d_1024_4nodes_123/chk0000550
   # --warmup/--steps then count from the checkpoint's step; the size must match the checkpoint.
 
+Queue limits (batch mode): every sweep point's node count and --walltime are checked against the Aurora
+queue it will go to (--queue, else chosen from the node count: debug 1-2, debug-scaling 2-256, prod 256+;
+prod's walltime cap depends on the node count). All violations are listed and nothing is generated:
+  python3 run_scaling.py --case tgv3d --sizes 1024 --nodes 4 --walltime 02:00:00   # debug-scaling max is 1 h
+  python3 run_scaling.py --case tgv3d --sizes 1024 --nodes 4 --walltime 02:00:00 --queue capacity   # ok
+Pass --no-queue-check to skip (e.g. after ALCF changes the limits; edit QUEUE_LIMITS in batch/generate.py).
+
 Check the settings with muphfasa's input_info (util/input_info, must be built there):
   python3 run_scaling.py --case tgv3d --mode strong --sizes 1024 --nodes 1 2 4 8 --stages performance \\
       --dry-run --input-info
@@ -214,6 +221,13 @@ def _run_batch_generate(args, dim: int, lattice: str):
     if args.max_grid_size != 32:
         print("  note: --max-grid-size is a local-run AMReX box tiling knob; batch scripts use the bench default", file=sys.stderr)
 
+    walltime = args.walltime or batch_generate.DEFAULT_WALLTIME
+    queues = [args.queue or batch_generate.auto_queue(nodes) for _, nodes in pairs]
+    if not args.sunspot and not args.no_queue_check:
+        # before anything is generated: PBS rejects a request outside the queue's limits
+        batch_generate.validate_queue_requests(
+            [(q, nodes, f"size={size} nodes={nodes}") for q, (size, nodes) in zip(queues, pairs)], walltime)
+
     if args.input_info:
         restart = os.path.abspath(os.path.expanduser(args.restart)) if args.restart else ""
         if "performance" not in (args.stages or batch_generate.ALL_STAGES):
@@ -236,6 +250,8 @@ def _run_batch_generate(args, dim: int, lattice: str):
             cmd += ["--queue", args.queue]
         if args.walltime:
             cmd += ["--walltime", args.walltime]
+        if args.no_queue_check:
+            cmd += ["--no-queue-check"]
         if args.project:
             cmd += ["--project", args.project]
         if args.stages:
@@ -273,7 +289,11 @@ def _run_batch_generate(args, dim: int, lattice: str):
     outdir_rel = os.path.relpath(outdir, batch_generate.REPO_ROOT)
     records = [(args.case, size, lattice, nodes) for size, nodes in written]
     verb = "would be written" if args.dry_run else "ready"
-    print(f"\nBatch scripts {verb} for {len(written)} sweep point(s). Submit with (one at a time; "
+    print()
+    if not args.sunspot:
+        for note in batch_generate.queue_notes(queues, len(written)):
+            print(f"note: {note}")
+    print(f"Batch scripts {verb} for {len(written)} sweep point(s). Submit with (one at a time; "
           f"each qsub blocks until its job finishes):")
     print(batch_generate.submit_hint(records, tail, outdir_rel))
     return 0
@@ -301,8 +321,14 @@ def main():
     parser.add_argument("--local", action="store_true",
                         help="run locally via helper.run_bench (mpiexec) instead of generating Aurora PBS scripts "
                              "(default is batch mode via batch/generate.py)")
-    parser.add_argument("--queue", type=str, default=None, help="PBS queue (default: auto from nodes)")
-    parser.add_argument("--walltime", type=str, default=None, help="PBS walltime (default 00:30:00)")
+    parser.add_argument("--queue", type=str, default=None,
+                        help="PBS queue (default: auto from nodes: debug 1-2, debug-scaling 2-256, prod 256+). "
+                             "Also checked: nodes and walltime must fit the queue (see --no-queue-check)")
+    parser.add_argument("--walltime", type=str, default=None,
+                        help="PBS walltime, [[HH:]MM:]SS (default 00:30:00); checked against the queue's limits")
+    parser.add_argument("--no-queue-check", action="store_true",
+                        help="batch mode: skip the check of nodes / walltime against the Aurora queue limits "
+                             "(QUEUE_LIMITS in batch/generate.py)")
     parser.add_argument("--project", type=str, default=None, help="ALCF project (default muphfasa)")
     parser.add_argument("--stages", nargs="+", choices=["compiling", "validating", "performance"], default=None,
                         help="stages to include (default: all three; e.g. --stages performance)")

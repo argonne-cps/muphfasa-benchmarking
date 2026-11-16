@@ -81,6 +81,12 @@ python3 run_scaling.py --case lid2d --sizes 1024 2048 4096 --nodes 1 2 4 --dry-r
 
 Generated scripts live in `batch/generated/` (do not hand-edit — re-generate). Each stages compiles in the home checkout, then stages the exe + inputs to `/flare/<project>/$USER/muphfasa-benchmarking-runs/<case>_<size>_<nodes>nodes_<jobid>` and runs there (flare is required for `filesystems=flare`; the job `cd`s to `$PBS_O_WORKDIR` first). See `skills/aurora-overview.md` for queues (`debug` 1–2, `debug-scaling` 2–256, `prod` 256+), `qstat -u $USER` before submit, GPU binding (`gpu_tile_compact.sh` / `gpu_dev_compact.sh`), and proxy `proxy.alcf.anl.gov:3128`.
 
+### Queue limits
+
+Before generating anything, `run_scaling.py` and `generate.py` check each sweep point's node count and `--walltime` against the Aurora queue it will be submitted to (`--queue`, else chosen from the node count: `debug` 1–2, `debug-scaling` 2–256, `prod` 256+). A request outside a queue's definition (node range, 5 min minimum walltime, per-queue maximum walltime) exits with *every* violation listed plus the queues that would accept the request, and nothing is written. For example a 4-node job at `--walltime 02:00:00` fails on `debug-scaling` (1 h max) and points to `--queue capacity` (1–16 nodes, up to 7 days). `prod` routes to `small` / `medium` / `large`, whose walltime caps (12 / 18 / 24 h) depend on the node count; the `backfill-*`, `small`/`medium`/`large` and `visualization` queues can be named directly. The table is `QUEUE_LIMITS` in `batch/generate.py` (from the ALCF docs, copied 2026-11-16): edit it if ALCF changes the limits, or pass `--no-queue-check` to skip the check. `--sunspot` and queue names not in the table are not checked.
+
+The sweep notes also remind you that `debug` / `debug-scaling` allow one job per user running/accruing/queued at a time (and `capacity` 5 queued, 2 running), which is why the loop below submits with `qsub -W block=true`.
+
 ### Submitting a sweep
 
 `generate.py` / `run_scaling.py` print the submission loop for everything they generated. Each job goes in with `qsub -W block=true`, which does not return until that job finishes, so the sweep runs sequentially:
