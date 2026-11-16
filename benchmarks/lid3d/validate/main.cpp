@@ -1,4 +1,4 @@
-// test_lid3d.cpp — Correctness test: 3-D lid-driven cavity, global checks +
+// main.cpp — Correctness test: 3-D lid-driven cavity, global checks +
 // Albensoeder centerline extrema.
 //
 // Runs the closed cubic cavity of ./inputs (NoSlip on all faces except the

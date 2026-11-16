@@ -9,6 +9,7 @@ DIM ?= 3
 
 EBASE = test_lid3d
 
-CEXE_sources += test_lid3d.cpp
+# main.cpp overrides the solver's default src/main.cpp (local file wins over VPATH).
+CEXE_sources += main.cpp
 
 include $(TOP)/Make.muphfasa

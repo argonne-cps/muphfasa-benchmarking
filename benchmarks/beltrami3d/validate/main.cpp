@@ -1,4 +1,4 @@
-// test_beltrami3d.cpp — Correctness test: 3-D Beltrami flow decay.
+// main.cpp — Correctness test: 3-D Beltrami flow decay.
 //
 // Mirrors external/muphfasa/tests/regression/tgv2d/test_tgv2d.cpp: uses the
 // normal InputParser/ISimulation/advanceFused() machinery with the non-quiescent

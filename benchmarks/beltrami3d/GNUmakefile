@@ -7,7 +7,9 @@ DIM ?= 3
 
 EBASE = bench
 
-CEXE_sources += ../bench.cpp ../main.cpp
+CEXE_headers += ../bench.H
+CEXE_sources += ../bench.cpp
+CEXE_sources += main.cpp
 CEXE_sources += InitData.cpp
 VPATH_LOCATIONS += ..
 INCLUDE_LOCATIONS += ..

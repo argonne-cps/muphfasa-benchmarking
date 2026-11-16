@@ -3,7 +3,7 @@
 Minimal validation counterpart to `../inputs.bench` (perf-only, no
 correctness check): a triply-periodic cubic domain seeded with the exact
 Beltrami solution (`../BeltramiAnalytic.H`). `../InitData.cpp` sets this as
-the t=0 initial condition; `test_beltrami3d.cpp` then compares the solver's
+the t=0 initial condition; `main.cpp` then compares the solver's
 evolution against the same analytic solution at later times, mirroring
 `external/muphfasa/tests/regression/tgv2d/test_tgv2d.cpp`.
 

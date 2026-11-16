@@ -18,7 +18,8 @@ DIM ?= 3
 
 EBASE = test_beltrami3d
 
-CEXE_sources += test_beltrami3d.cpp
+# main.cpp overrides the solver's default src/main.cpp (local file wins over VPATH).
+CEXE_sources += main.cpp
 
 # Narrow vpath for InitData.cpp only (not a blanket VPATH_LOCATIONS += ..):
 # AMReX's Make.rules generates tmp_build_dir/s/<dim>d.gnu.EXE/AMReX_Config.H

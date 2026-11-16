@@ -11,7 +11,7 @@ run as a correctness/validation case rather than a timed benchmark.
 
 Two complementary layers:
 
-1. **In-situ energy balance** (`test_tgv3d.cpp`): the identity
+1. **In-situ energy balance** (`main.cpp`): the identity
    `KE(0)-KE(T) = ∫ ε dt` (`ε = ν⟨|∇u|²⟩ = 2νℰ`) is exact for periodic
    incompressible NS at any Re. The driver samples `E_k = ½⟨|u|²⟩`, `ε`, and
    enstrophy `ℰ = ½⟨|ω|²⟩` at every `amr.plot_int` step (central differences,
@@ -47,11 +47,11 @@ converts it to lattice steps via `UnitConverter::toLatticeTime`, so
 ## Build and run
 
 ```sh
-make                               # builds test_tgv3d3d.gnu.ex (DIM=3)
+make                               # builds test_tgv3d.gnu.ex (DIM=3)
 mkdir -p run && cd run
-../test_tgv3d3d.gnu.ex ../inputs
+../test_tgv3d.gnu.ex ../inputs
 # or smoke test:
-../test_tgv3d3d.gnu.ex ../inputs.small
+../test_tgv3d.gnu.ex ../inputs.small
 ```
 
 Each `amr.plot_int` step prints `t  E_k  ε  ℰ`; at the end the energy-balance

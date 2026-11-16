@@ -1,7 +1,7 @@
 # Correctness test: 3-D Beltrami flow decay.
 # Triply-periodic NxN^3 domain, one wavelength per side (see ../BeltramiAnalytic.H).
 # ../InitData.cpp (one directory up, shared with the bench.cpp perf driver)
-# sets the initial condition to the exact solution at t=0; test_beltrami3d.cpp
+# sets the initial condition to the exact solution at t=0; main.cpp
 # compares the solver's evolution against the exact solution at later times.
 
 # ── Grid ──────────────────────────────────────────────────────────────────
@@ -24,7 +24,7 @@ lbm.tau          = 0.8      # pinned directly: nu_lat = (tau-0.5)*cs2 = 0.1
 # units.Re must be nonzero (UnitConverter divides by it internally) but its
 # exact value has no effect here, since lbm.tau is pinned directly above.
 # units.ref_velocity doubles as the Beltrami amplitude u0 (read via
-# InputParser::refVelocity() by both InitData.cpp and test_beltrami3d.cpp);
+# InputParser::refVelocity() by both InitData.cpp and main.cpp);
 # it's a *physical* velocity, converted to lattice units via
 # UnitConverter::toLatticeVelocity() before use. Kept small to stay in the
 # low-Mach regime.

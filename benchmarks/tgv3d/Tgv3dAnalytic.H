@@ -25,11 +25,11 @@
 // decay of the t=0 mode, exp(-2*nu*k^2*t) applied to the unchanged spatial
 // pattern -- it ignores the nonlinear mode coupling entirely, and is only
 // ever evaluated at t=0 (by ../InitData.cpp), where it's exact.
-// It is NOT used for t>0 validation: validate/test_tgv3d.cpp instead checks
+// It is NOT used for t>0 validation: validate/main.cpp instead checks
 // the global kinetic-energy balance KE(0)-KE(T) = nu*integral(|curl(u)|^2)dt,
 // an identity that holds exactly for incompressible Navier-Stokes at any
 // Re/amplitude/duration despite the vortex stretching described above (see
-// validate/README.md and the comment in validate/test_tgv3d.cpp).
+// validate/README.md and the comment in validate/main.cpp).
 //
 // rho is held at 1 (weak-compressibility assumption, Ma<<1), as in
 // BeltramiAnalytic.H, rather than attempting the 2-D TGV's second-order

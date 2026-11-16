@@ -1,9 +1,16 @@
 // bench.cpp — Generic LBM benchmark driver (no I/O, timed).
 //
 // Thin clone of external/muphfasa/tests/regression/couette/test_couette.cpp
-// and tgv2d/test_tgv2d.cpp: uses InputParser/ISimulation/advanceFused() with the
+// and tgv2d/test_tgv2d.cpp: uses InputParser/ISimulation/advance() with the
 // benchmark's own InitData.cpp (if any) overriding the default quiescent
 // start via VPATH precedence. Measures MLUPS without plotfile overhead.
+//
+// Step counting (fresh start or restart from a checkpoint via amr.restart):
+//   bench.warmup untimed steps, then bench.steps timed steps, both counted from
+//   the step the run starts at (0, or just after the checkpoint). If bench.steps
+//   is not given, the legacy behaviour applies: sim.max_step is the absolute
+//   step count to reach, so bench.steps = sim.max_step - steps already done
+//   - bench.warmup.
 
 #include "bench.H"
 #include "IO/Checkpoint.H"
@@ -16,6 +23,7 @@
 #include <AMReX_ParallelDescriptor.H>
 #include <AMReX_Print.H>
 
+#include <algorithm>
 #include <cmath>
 
 using namespace muphfasa;
@@ -31,16 +39,23 @@ void do_bench(InputParser& params)
     long long total_cells = 1;
 
     std::string lattice = params.latticeType();
-    
+
     for (auto n : ncells) total_cells *= n;
     // For MLUPS we report global lattice updates per second.
 
+    // Lattice steps already advanced: 0 for a fresh start, the checkpoint's
+    // time after a restart (the simulation time advances by 1 per step).
+    const std::string restart = params.restartFile();
+    const long long steps_done = std::llround(sim->time());
+
     const int max_step = params.maxStep();
-    int warmup = std::min(10, max_step/10);
+    int bench_steps = -1;
+    int warmup = -1;
     int save_checkpoint = 0;
     std::string check_file = params.checkpointPrefix();
     {
         amrex::ParmParse ppbench("bench");
+        ppbench.query("steps", bench_steps);
         ppbench.query("warmup", warmup);
         ppbench.query("save_checkpoint", save_checkpoint);
         ppbench.query("checkpoint", save_checkpoint);
@@ -50,12 +65,28 @@ void do_bench(InputParser& params)
         amrex::ParmParse ppamr("amr");
         ppamr.query("check_file", check_file);
     }
-    const int bench_steps = max_step - warmup;
+
+    if (bench_steps <= 0) {
+        // legacy: sim.max_step is the absolute step to run up to
+        const long long remaining = static_cast<long long>(max_step) - steps_done;
+        if (warmup < 0) warmup = static_cast<int>(std::min<long long>(10, remaining / 10));
+        bench_steps = static_cast<int>(remaining) - warmup;
+    } else if (warmup < 0) {
+        warmup = std::min(10, bench_steps / 10);
+    }
+    if (bench_steps <= 0) {
+        amrex::Abort("bench: no timed steps left (set bench.steps, or raise sim.max_step above "
+                     "the steps already done + bench.warmup)");
+    }
+    const long long end_steps = steps_done + warmup + bench_steps;
 
     amrex::Print() << "\n=== Benchmark: " << lattice << " "
-                   << "cells=" << total_cells 
-                   << " max_step=" << max_step
+                   << "cells=" << total_cells
                    << " warmup=" << warmup << " bench_steps=" << bench_steps << " ===\n";
+    if (!restart.empty()) {
+        amrex::Print() << "Restarted from " << restart << ": " << steps_done
+                       << " steps already done, run continues to step " << end_steps << "\n";
+    }
 
     // Warmup (not timed, also fills caches)
     for (int step = 0; step < warmup; ++step) {
@@ -64,7 +95,7 @@ void do_bench(InputParser& params)
     amrex::ParallelDescriptor::Barrier();
     double t0 = amrex::second();
 
-    for (int step = warmup; step < max_step; ++step) {
+    for (int step = 0; step < bench_steps; ++step) {
         sim->advance();
         // No I/O in bench mode: inputs.bench should have amr.plot_int=-1
     }
@@ -82,7 +113,7 @@ void do_bench(InputParser& params)
 
     amrex::Print() << "Benchmark result: elapsed=" << elapsed << " s for "
                    << bench_steps << " steps\n";
-    amrex::Print() << "  MLUPS=" << mlups 
+    amrex::Print() << "  MLUPS=" << mlups
                    << "  ms/step=" << ms_per_step << "\n";
     amrex::Print() << "  Config: lattice=" << lattice
                    << " ncells=";
@@ -96,10 +127,13 @@ void do_bench(InputParser& params)
                    << "\n";
 
     if (save_checkpoint) {
-        std::string cname = checkpointName(check_file, max_step);
+        // Label by steps advanced so chained restarts keep counting correctly
+        // (equals sim.max_step for a fresh run with the legacy step counting).
+        const int chk_step = static_cast<int>(std::llround(sim->time()));
+        std::string cname = checkpointName(check_file, chk_step);
         amrex::Print() << "Saving final checkpoint: " << cname
-                       << " at step " << max_step << "\n";
-        writeCheckpoint(cname, sim->f(), sim->geom(), max_step, sim->time());
+                       << " at step " << chk_step << "\n";
+        writeCheckpoint(cname, sim->f(), sim->geom(), chk_step, sim->time());
         amrex::ParallelDescriptor::Barrier();
         amrex::Print() << "Checkpoint done: " << cname << "\n";
     }
